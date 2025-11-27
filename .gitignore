@@ -1,0 +1,105 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Xcode user data
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Xcode Derived Data
+ios/DerivedData/
+
+# Firebase
+**/GoogleService-Info.plist
+**/google-services.json
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# macOS build
+/macos/Flutter/ephemeral/
+/macos/Flutter/Flutter-Debug.xcconfig
+/macos/Flutter/Flutter-Release.xcconfig
+
+# Web
+/web/.firebase/
+web/.dart_tool/
+web/
+
+# Windows
+/windows
+
+# test
+/test
+
+# linux
+/linux
+
+# macos
+/macos
+
+# android
+/android
+
+# Linux & Windows build junk
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+.metadata
+pubspec.lock        
+firebase.json
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Runner/GeneratedPluginRegistrant.*
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+
+
+*.keystore
+*.jks
+android/key.properties
