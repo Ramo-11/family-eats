@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/recipe.dart';
 import '../providers/shopping_list_provider.dart';
+import '../providers/recipe_provider.dart';
 import 'add_recipe_screen.dart';
 
 class RecipeDetailScreen extends ConsumerWidget {
@@ -36,6 +37,12 @@ class RecipeDetailScreen extends ConsumerWidget {
                     ),
                   );
                 },
+              ),
+              // DELETE BUTTON
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.red),
+                tooltip: "Delete Recipe",
+                onPressed: () => _showDeleteConfirmation(context, ref),
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
@@ -143,6 +150,48 @@ class RecipeDetailScreen extends ConsumerWidget {
           ),
 
           const SliverToBoxAdapter(child: SizedBox(height: 50)),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteConfirmation(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Delete Recipe?"),
+        content: Text(
+          'Are you sure you want to delete "${recipe.title}"? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext); // Close dialog
+
+              // Delete the recipe
+              await ref.read(firestoreServiceProvider).deleteRecipe(recipe.id);
+
+              if (context.mounted) {
+                Navigator.pop(context); // Go back to recipe list
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('"${recipe.title}" deleted'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Delete"),
+          ),
         ],
       ),
     );

@@ -1,36 +1,55 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../models/meal_plan_entry.dart';
+import '../services/firestore_service.dart';
+import '../services/household_service.dart';
 
-class MealPlanNotifier extends StateNotifier<List<MealPlanEntry>> {
-  MealPlanNotifier() : super([]);
+/// Stream provider - reactively watches Firestore for real-time sync
+final mealPlanProvider = StreamProvider<List<MealPlanEntry>>((ref) {
+  final asyncHouseholdId = ref.watch(currentHouseholdIdProvider);
+  final householdId = asyncHouseholdId.asData?.value ?? '';
 
-  // Add to specific date
-  void addMealToDate(DateTime date, String recipeId) {
+  if (householdId.isEmpty) return const Stream.empty();
+
+  final firestore = FirestoreService(householdId);
+  return firestore.getMealPlan();
+});
+
+/// Service provider for write operations
+final mealPlanServiceProvider = Provider<MealPlanService?>((ref) {
+  final asyncHouseholdId = ref.watch(currentHouseholdIdProvider);
+  final householdId = asyncHouseholdId.asData?.value ?? '';
+
+  if (householdId.isEmpty) return null;
+  return MealPlanService(householdId);
+});
+
+class MealPlanService {
+  final FirestoreService _firestore;
+  final _uuid = const Uuid();
+
+  MealPlanService(String householdId)
+      : _firestore = FirestoreService(householdId);
+
+  Future<void> addMealToDate(DateTime date, String recipeId) async {
     final entry = MealPlanEntry(
-      id: const Uuid().v4(),
+      id: _uuid.v4(),
       date: date,
       recipeId: recipeId,
     );
-    state = [...state, entry];
+    await _firestore.addMealPlanEntry(entry);
   }
 
-  // Add to "Flexible/Weekly" bucket (No date)
-  void addFlexibleMeal(String recipeId) {
+  Future<void> addFlexibleMeal(String recipeId) async {
     final entry = MealPlanEntry(
-      id: const Uuid().v4(),
+      id: _uuid.v4(),
       date: null,
       recipeId: recipeId,
     );
-    state = [...state, entry];
+    await _firestore.addMealPlanEntry(entry);
   }
 
-  void removeMeal(String id) {
-    state = state.where((m) => m.id != id).toList();
+  Future<void> removeMeal(String id) async {
+    await _firestore.removeMealPlanEntry(id);
   }
 }
-
-final mealPlanProvider =
-    StateNotifierProvider<MealPlanNotifier, List<MealPlanEntry>>((ref) {
-      return MealPlanNotifier();
-    });

@@ -115,6 +115,66 @@ class HouseholdService {
     final household = await getHousehold(householdId);
     return household?.ownerId == userId;
   }
+
+  /// Transfer ownership to another member
+  Future<void> transferOwnership(String householdId, String newOwnerId) async {
+    await _db.collection('households').doc(householdId).update({
+      'ownerId': newOwnerId,
+    });
+  }
+
+  /// Delete household and remove all members from it
+  Future<void> deleteHousehold(String householdId) async {
+    // First, get all users in this household and clear their householdId
+    final usersSnapshot = await _db
+        .collection('users')
+        .where('householdId', isEqualTo: householdId)
+        .get();
+
+    final batch = _db.batch();
+
+    // Update all users to remove them from the household
+    for (final userDoc in usersSnapshot.docs) {
+      batch.update(userDoc.reference, {
+        'householdId': null,
+        'onboardingComplete': false,
+      });
+    }
+
+    // Delete all subcollections (recipes, meal_plan, custom_ingredients)
+    final recipesSnapshot = await _db
+        .collection('households')
+        .doc(householdId)
+        .collection('recipes')
+        .get();
+    for (final doc in recipesSnapshot.docs) {
+      batch.delete(doc.reference);
+    }
+
+    final mealPlanSnapshot = await _db
+        .collection('households')
+        .doc(householdId)
+        .collection('meal_plan')
+        .get();
+    for (final doc in mealPlanSnapshot.docs) {
+      batch.delete(doc.reference);
+    }
+
+    final ingredientsSnapshot = await _db
+        .collection('households')
+        .doc(householdId)
+        .collection('custom_ingredients')
+        .get();
+    for (final doc in ingredientsSnapshot.docs) {
+      batch.delete(doc.reference);
+    }
+
+    // Delete the household document itself
+    batch.delete(_db.collection('households').doc(householdId));
+
+    // Commit all changes
+    await batch.commit();
+  }
 }
 
 // Provider

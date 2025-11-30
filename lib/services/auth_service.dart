@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,7 +17,25 @@ class AuthService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('householdId');
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // Sync display name from Firestore if it's missing in Auth
+      if (credential.user != null &&
+          (credential.user!.displayName == null ||
+              credential.user!.displayName!.isEmpty)) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(credential.user!.uid)
+            .get();
+        final storedName = userDoc.data()?['name'] as String?;
+        if (storedName != null && storedName.isNotEmpty) {
+          await credential.user!.updateDisplayName(storedName);
+          await credential.user!.reload();
+        }
+      }
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
     }
@@ -48,17 +67,27 @@ class AuthService {
   String _handleAuthError(FirebaseAuthException e) {
     switch (e.code) {
       case 'user-not-found':
-        return 'No user found with this email.';
+        return 'No account found with this email address.';
       case 'wrong-password':
-        return 'Incorrect password.';
+        return 'Incorrect password. Please try again.';
+      case 'invalid-credential':
+        return 'Invalid email or password. Please check your credentials.';
       case 'email-already-in-use':
-        return 'This email is already registered.';
+        return 'This email is already registered. Try logging in instead.';
       case 'invalid-email':
         return 'Please enter a valid email address.';
       case 'weak-password':
-        return 'Password is too weak.';
+        return 'Password is too weak. Use at least 6 characters.';
+      case 'user-disabled':
+        return 'This account has been disabled. Contact support for help.';
+      case 'too-many-requests':
+        return 'Too many failed attempts. Please wait a moment and try again.';
+      case 'network-request-failed':
+        return 'Network error. Please check your internet connection.';
+      case 'operation-not-allowed':
+        return 'Email/password sign-in is not enabled.';
       default:
-        return 'An undefined error occurred. Please try again.';
+        return 'Authentication failed: ${e.message ?? e.code}';
     }
   }
 }

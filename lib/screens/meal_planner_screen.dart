@@ -29,9 +29,10 @@ class _MealPlannerScreenState extends ConsumerState<MealPlannerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final mealPlanEntries = ref.watch(mealPlanProvider);
+    final mealPlanAsync = ref.watch(mealPlanProvider);
     final recipesAsync = ref.watch(recipeProvider);
     final allRecipes = recipesAsync.value ?? [];
+    final mealPlanEntries = mealPlanAsync.value ?? [];
 
     // Split meals into two lists
     final flexibleMeals = mealPlanEntries.where((m) => m.date == null).toList();
@@ -128,8 +129,8 @@ class _MealPlannerScreenState extends ConsumerState<MealPlannerScreen>
                               trailing: IconButton(
                                 icon: const Icon(Icons.close),
                                 onPressed: () => ref
-                                    .read(mealPlanProvider.notifier)
-                                    .removeMeal(entry.id),
+                                    .read(mealPlanServiceProvider)
+                                    ?.removeMeal(entry.id),
                               ),
                               onTap: () {
                                 Navigator.push(
@@ -191,27 +192,28 @@ class _MealPlannerScreenState extends ConsumerState<MealPlannerScreen>
               ),
               const Divider(),
               Expanded(
-                child: ListView.builder(
-                  itemCount: recipes.length,
-                  itemBuilder: (ctx, i) {
-                    final recipe = recipes[i];
-                    return ListTile(
-                      title: Text(recipe.title),
-                      onTap: () {
-                        if (date == null) {
-                          ref
-                              .read(mealPlanProvider.notifier)
-                              .addFlexibleMeal(recipe.id);
-                        } else {
-                          ref
-                              .read(mealPlanProvider.notifier)
-                              .addMealToDate(date, recipe.id);
-                        }
-                        Navigator.pop(ctx);
-                      },
-                    );
-                  },
-                ),
+                child: recipes.isEmpty
+                    ? const Center(
+                        child: Text("No recipes yet. Add some first!"),
+                      )
+                    : ListView.builder(
+                        itemCount: recipes.length,
+                        itemBuilder: (ctx, i) {
+                          final recipe = recipes[i];
+                          return ListTile(
+                            title: Text(recipe.title),
+                            onTap: () {
+                              final service = ref.read(mealPlanServiceProvider);
+                              if (date == null) {
+                                service?.addFlexibleMeal(recipe.id);
+                              } else {
+                                service?.addMealToDate(date, recipe.id);
+                              }
+                              Navigator.pop(ctx);
+                            },
+                          );
+                        },
+                      ),
               ),
             ],
           ),
@@ -319,8 +321,8 @@ class _DayCard extends StatelessWidget {
                       const Spacer(),
                       InkWell(
                         onTap: () => ref
-                            .read(mealPlanProvider.notifier)
-                            .removeMeal(entry.id),
+                            .read(mealPlanServiceProvider)
+                            ?.removeMeal(entry.id),
                         child: const Icon(
                           Icons.close,
                           size: 16,

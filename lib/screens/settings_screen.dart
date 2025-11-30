@@ -31,48 +31,60 @@ class SettingsScreen extends ConsumerWidget {
         child: Column(
           children: [
             // --- 1. PROFILE HEADER ---
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundColor: primaryColor.withOpacity(0.1),
-                    child: Text(
-                      _getInitials(authUser?.displayName),
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: primaryColor,
+            InkWell(
+              onTap: () =>
+                  _showEditProfileSheet(context, ref, authUser?.displayName),
+              child: Container(
+                color: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 32,
+                  horizontal: 24,
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundColor: primaryColor.withOpacity(0.1),
+                      child: Text(
+                        _getInitials(authUser?.displayName),
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: primaryColor,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          authUser?.displayName ?? "User",
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            authUser?.displayName ?? "User",
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black87,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          authUser?.email ?? "",
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
+                          const SizedBox(height: 4),
+                          Text(
+                            authUser?.email ?? "",
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    Icon(
+                      Icons.edit_outlined,
+                      color: Colors.grey.shade400,
+                      size: 20,
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -129,7 +141,7 @@ class SettingsScreen extends ConsumerWidget {
                           size: 20,
                         ),
                       ),
-                      title: const Text("Ingredient Preferences"),
+                      title: const Text("Custom Ingredient"),
                       trailing: const Icon(
                         Icons.chevron_right,
                         color: Colors.grey,
@@ -347,9 +359,15 @@ class SettingsScreen extends ConsumerWidget {
                       final isMe = member['uid'] == currentUserId;
                       final isMemberOwner = member['uid'] == household.ownerId;
 
-                      String memberName = member['name'] ?? "";
+                      // Get name from Firestore user doc, fallback to email prefix
+                      String memberName = member['name'] as String? ?? '';
                       if (memberName.isEmpty) {
-                        memberName = isMe ? "Me" : "Member";
+                        final email = member['email'] as String? ?? '';
+                        if (email.isNotEmpty) {
+                          memberName = email.split('@').first;
+                        } else {
+                          memberName = isMe ? 'Me' : 'Member';
+                        }
                       }
 
                       return Padding(
@@ -378,7 +396,7 @@ class SettingsScreen extends ConsumerWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    isMe ? "$memberName (You)" : memberName,
+                                    isMe ? '$memberName (You)' : memberName,
                                     style: TextStyle(
                                       fontWeight: isMe
                                           ? FontWeight.bold
@@ -412,7 +430,7 @@ class SettingsScreen extends ConsumerWidget {
 
               const SizedBox(height: 24),
 
-              // Leave Household Button (only for non-owners)
+              // Leave Household Button (for non-owners)
               if (!isOwner)
                 SizedBox(
                   width: double.infinity,
@@ -463,6 +481,83 @@ class SettingsScreen extends ConsumerWidget {
                   onTap: () =>
                       _showRegenerateCodeDialog(context, ref, household),
                 ),
+                membersAsync.when(
+                  data: (members) {
+                    // Only show transfer option if there are other members
+                    final otherMembers = members
+                        .where((m) => m['uid'] != currentUserId)
+                        .toList();
+                    if (otherMembers.isNotEmpty) {
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.swap_horiz, color: primaryColor),
+                        title: const Text("Transfer Ownership"),
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          color: Colors.grey,
+                        ),
+                        onTap: () => _showTransferOwnershipDialog(
+                          context,
+                          ref,
+                          household,
+                          otherMembers,
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, __) => const SizedBox.shrink(),
+                ),
+                const Divider(height: 24),
+                Text(
+                  "DANGER ZONE",
+                  style: TextStyle(
+                    color: Colors.red.shade400,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                membersAsync.when(
+                  data: (members) {
+                    final otherMembers = members
+                        .where((m) => m['uid'] != currentUserId)
+                        .toList();
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.exit_to_app, color: Colors.red),
+                      title: const Text(
+                        "Leave Household",
+                        style: TextStyle(color: Colors.red),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                        color: Colors.grey,
+                      ),
+                      onTap: () => _showOwnerLeaveDialog(
+                        context,
+                        ref,
+                        household,
+                        otherMembers,
+                      ),
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, __) => const SizedBox.shrink(),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
+                  title: const Text(
+                    "Delete Household",
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () =>
+                      _showDeleteHouseholdDialog(context, ref, household),
+                ),
               ],
             ],
           ),
@@ -496,6 +591,430 @@ class SettingsScreen extends ConsumerWidget {
     if (confirm == true) {
       await ref.read(userServiceProvider)?.leaveHousehold();
     }
+  }
+
+  void _showEditProfileSheet(
+    BuildContext context,
+    WidgetRef ref,
+    String? currentName,
+  ) {
+    final controller = TextEditingController(text: currentName ?? '');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+
+        return GestureDetector(
+          onTap: () => FocusScope.of(context).unfocus(),
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: EdgeInsets.only(bottom: bottomPadding),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Edit Profile',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2D3A2D),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      labelText: 'Display Name',
+                      prefixIcon: const Icon(Icons.person_outline),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final newName = controller.text.trim();
+                        if (newName.isEmpty) return;
+
+                        // Update Firestore
+                        await ref
+                            .read(userServiceProvider)
+                            ?.updateName(newName);
+
+                        // Update Firebase Auth display name
+                        await ref
+                            .read(authServiceProvider)
+                            .currentUser
+                            ?.updateDisplayName(newName);
+
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Profile updated!'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4A6C47),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Save Changes',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showOwnerLeaveDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Household household,
+    List<Map<String, dynamic>> otherMembers,
+  ) async {
+    if (otherMembers.isEmpty) {
+      // No other members - must delete household instead
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text("Can't Leave"),
+          content: const Text(
+            "You're the only member of this household. You can delete the household instead, or invite someone and transfer ownership to them first.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Has other members - must transfer ownership first
+    final selectedMember = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Transfer Ownership to Leave"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "As the owner, you must transfer ownership before leaving. Select the new owner:",
+            ),
+            const SizedBox(height: 16),
+            ...otherMembers.map((member) {
+              final memberName = member['name'] ?? 'Member';
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: Colors.grey.shade100,
+                  child: Text(
+                    _getInitials(memberName),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+                title: Text(memberName),
+                onTap: () => Navigator.pop(dialogContext, member),
+              );
+            }),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text("Cancel"),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedMember != null && context.mounted) {
+      final memberName = selectedMember['name'] ?? 'this member';
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text("Confirm Transfer & Leave"),
+          content: Text(
+            'Transfer ownership to $memberName and leave the household?\n\nThis action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text("Transfer & Leave"),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm == true) {
+        // Transfer ownership then leave
+        await ref
+            .read(householdServiceProvider)
+            .transferOwnership(household.id, selectedMember['uid']);
+        await ref.read(userServiceProvider)?.leaveHousehold();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Ownership transferred to $memberName'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _showTransferOwnershipDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Household household,
+    List<Map<String, dynamic>> otherMembers,
+  ) async {
+    final selectedMember = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Transfer Ownership"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Select the new owner of this household:"),
+            const SizedBox(height: 16),
+            ...otherMembers.map((member) {
+              final memberName = member['name'] ?? 'Member';
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: Colors.grey.shade100,
+                  child: Text(
+                    _getInitials(memberName),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+                title: Text(memberName),
+                onTap: () => Navigator.pop(dialogContext, member),
+              );
+            }),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text("Cancel"),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedMember != null && context.mounted) {
+      final memberName = selectedMember['name'] ?? 'this member';
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text("Confirm Transfer"),
+          content: Text(
+            'Transfer ownership to $memberName?\n\nThey will become the new owner and you will become a regular member.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4A6C47),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text("Transfer"),
+            ),
+          ],
+        ),
+      );
+
+      if (confirm == true) {
+        await ref
+            .read(householdServiceProvider)
+            .transferOwnership(household.id, selectedMember['uid']);
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Ownership transferred to $memberName'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _showDeleteHouseholdDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Household household,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Delete Household?"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "This will permanently delete:",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            _buildDeleteItem("All recipes"),
+            _buildDeleteItem("All meal plans"),
+            _buildDeleteItem("All custom ingredients"),
+            _buildDeleteItem("Remove all members"),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning, color: Colors.red.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      "This action cannot be undone!",
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Delete Forever"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await ref.read(householdServiceProvider).deleteHousehold(household.id);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Household deleted'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildDeleteItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(Icons.remove_circle, size: 16, color: Colors.red.shade300),
+          const SizedBox(width: 8),
+          Text(text),
+        ],
+      ),
+    );
   }
 
   void _showRenameDialog(

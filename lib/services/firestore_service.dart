@@ -30,6 +30,15 @@ class FirestoreService {
         .set(recipe.toMap());
   }
 
+  Future<void> deleteRecipe(String recipeId) {
+    return _db
+        .collection('households')
+        .doc(householdId)
+        .collection('recipes')
+        .doc(recipeId)
+        .delete();
+  }
+
   // --- 2. MEAL PLAN ---
   Stream<List<MealPlanEntry>> getMealPlan() {
     return _db

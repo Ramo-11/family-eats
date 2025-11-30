@@ -47,18 +47,18 @@ class ShoppingListScreen extends ConsumerWidget {
   }
 
   void _syncWithMealPlan(BuildContext context, WidgetRef ref) {
-    final meals = ref.read(mealPlanProvider);
+    final mealsAsync = ref.read(mealPlanProvider);
     final recipesAsync = ref.read(recipeProvider);
 
-    // Still loading?
-    if (!recipesAsync.hasValue) {
+    if (!mealsAsync.hasValue || !recipesAsync.hasValue) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text("Recipes still loading...")));
+      ).showSnackBar(const SnackBar(content: Text("Still loading data...")));
       return;
     }
 
-    final recipes = recipesAsync.value!; // <--- now it's List<Recipe>
+    final meals = mealsAsync.value!;
+    final recipes = recipesAsync.value!;
 
     if (meals.isEmpty) {
       ScaffoldMessenger.of(

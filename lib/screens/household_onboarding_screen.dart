@@ -247,7 +247,7 @@ class _CreateHouseholdSheetState extends ConsumerState<_CreateHouseholdSheet> {
         await userService.createAndJoinHousehold(name, householdService);
 
         if (mounted) {
-          Navigator.of(context, rootNavigator: true).pop();
+          Navigator.of(context).pop();
         }
       }
     } catch (e) {
@@ -444,7 +444,7 @@ class _JoinHouseholdSheetState extends ConsumerState<_JoinHouseholdSheet> {
           );
 
           if (mounted) {
-            Navigator.of(context, rootNavigator: true).pop();
+            Navigator.of(context).pop();
           }
         }
       }

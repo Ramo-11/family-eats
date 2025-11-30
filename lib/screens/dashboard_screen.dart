@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../providers/meal_plan_provider.dart';
 import '../providers/recipe_provider.dart';
@@ -22,29 +23,46 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  static const String _tutorialSeenKey = 'has_seen_tutorial';
+
   @override
   void initState() {
     super.initState();
-    // Show tutorial after the first frame renders
+    // Show tutorial after the first frame renders (only if not seen before)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showTutorialModal();
+      _checkAndShowTutorial();
     });
   }
 
+  Future<void> _checkAndShowTutorial() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenTutorial = prefs.getBool(_tutorialSeenKey) ?? false;
+
+    if (!hasSeenTutorial && mounted) {
+      _showTutorialModal();
+    }
+  }
+
+  Future<void> _markTutorialAsSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_tutorialSeenKey, true);
+  }
+
   void _showTutorialModal() {
-    // In a real app, check SharedPreferences here (e.g., if (!hasSeenTutorial))
     showDialog(
       context: context,
       barrierDismissible: false, // Force user to interact
-      builder: (context) => const _TutorialModal(),
+      builder: (context) => _TutorialModal(onComplete: _markTutorialAsSeen),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authServiceProvider).currentUser;
-    final meals = ref.watch(mealPlanProvider);
+    final mealsAsync = ref.watch(mealPlanProvider);
     final allRecipes = ref.watch(recipeProvider);
+
+    final meals = mealsAsync.value ?? [];
 
     // 1. Logic: Filter Meals
     final now = DateTime.now();
@@ -81,13 +99,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header
-            Text(
-              "Hello, ${user?.displayName?.split(' ')[0] ?? 'Chef'}! 👋",
-              style: const TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF4A6C47),
-              ),
+            Row(
+              children: [
+                Text(
+                  "Hello, ${user?.displayName?.split(' ')[0] ?? 'Chef'}!",
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF4A6C47),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(Icons.waving_hand, color: Color(0xFF4A6C47)),
+              ],
             ),
             const SizedBox(height: 24),
 
@@ -249,7 +273,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
       child: Column(
         children: [
-          const Icon(Icons.nightlight_round, color: Colors.grey, size: 48),
+          const Icon(Icons.restaurant, color: Colors.grey, size: 48),
           const SizedBox(height: 16),
           const Text(
             "Nothing planned for today.",
@@ -299,7 +323,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 // --- MODERN TUTORIAL MODAL ---
 
 class _TutorialModal extends StatefulWidget {
-  const _TutorialModal();
+  final VoidCallback onComplete;
+
+  const _TutorialModal({required this.onComplete});
 
   @override
   State<_TutorialModal> createState() => _TutorialModalState();
@@ -326,9 +352,14 @@ class _TutorialModalState extends State<_TutorialModal> {
       "icon": Icons.shopping_cart,
       "title": "Smart Shopping",
       "desc":
-          "We automatically generate your grocery list based on your meal plan. Syncs instantly with your partner!",
+          "We automatically generate your grocery list based on your meal plan. Syncs instantly with your household!",
     },
   ];
+
+  void _closeTutorial() {
+    widget.onComplete();
+    Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -345,7 +376,7 @@ class _TutorialModalState extends State<_TutorialModal> {
               alignment: Alignment.topRight,
               child: IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
+                onPressed: _closeTutorial,
               ),
             ),
 
@@ -435,7 +466,7 @@ class _TutorialModalState extends State<_TutorialModal> {
                           curve: Curves.easeInOut,
                         );
                       } else {
-                        Navigator.pop(context);
+                        _closeTutorial();
                       }
                     },
                     style: ElevatedButton.styleFrom(
