@@ -41,6 +41,16 @@ class AuthService {
     }
   }
 
+  Future<void> signInAnonymously() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('householdId');
+      await _auth.signInAnonymously();
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthError(e);
+    }
+  }
+
   // Sign Up (Create new account)
   Future<void> signUp(String email, String password, String name) async {
     try {

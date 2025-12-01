@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
+import '../services/household_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -70,6 +71,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             behavior: SnackBarBehavior.floating,
           ),
         );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleGuestLogin() async {
+    setState(() => _isLoading = true);
+    try {
+      // 1. Sign in Anonymously
+      final authService = ref.read(authServiceProvider);
+      await authService.signInAnonymously();
+
+      final user = authService.currentUser;
+      if (user != null) {
+        // 2. Initialize a generic User document (No PII)
+        final userService = UserService(user.uid);
+        await userService.initializeUser('Guest Chef', '');
+
+        // 3. Auto-create a household so they skip the Onboarding Screen completely
+        final householdService = ref.read(householdServiceProvider);
+        await userService.createAndJoinHousehold(
+          'My Kitchen',
+          householdService,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Guest login failed: $e")));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -237,6 +269,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: const TextStyle(
                       color: Color(0xFF4A6C47),
                       fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _isLoading ? null : _handleGuestLogin,
+                  child: const Text(
+                    "Skip for now (Continue as Guest)",
+                    style: TextStyle(
+                      color: Colors.grey,
+                      decoration: TextDecoration.underline,
                     ),
                   ),
                 ),

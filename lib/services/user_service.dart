@@ -17,15 +17,21 @@ class UserService {
   }
 
   /// Initialize a new user (called after signup)
-  /// Note: householdId is NOT set here - user must go through onboarding
   Future<void> initializeUser(String name, String email) async {
     await _db.collection('users').doc(uid).set({
       'name': name,
       'email': email,
-      'householdId': null, // Will be set during onboarding
+      'householdId': null,
       'onboardingComplete': false,
+      'isPro': false, // Default to free
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<void> updateProStatus(bool isPro) async {
+    await _db.collection('users').doc(uid).set({
+      'isPro': isPro,
+    }, SetOptions(merge: true));
   }
 
   /// Check if user has completed onboarding
@@ -48,12 +54,9 @@ class UserService {
       'householdId': householdId,
       'onboardingComplete': true,
     };
-
-    // If displayName is provided, update it too
     if (displayName != null && displayName.isNotEmpty) {
       updateData['name'] = displayName;
     }
-
     await _db
         .collection('users')
         .doc(uid)
@@ -69,12 +72,10 @@ class UserService {
       name: householdName,
       ownerId: uid,
     );
-
     await _db.collection('users').doc(uid).set({
       'householdId': householdId,
       'onboardingComplete': true,
     }, SetOptions(merge: true));
-
     return householdId;
   }
 
@@ -82,7 +83,7 @@ class UserService {
   Future<void> leaveHousehold() async {
     await _db.collection('users').doc(uid).set({
       'householdId': null,
-      'onboardingComplete': false, // Forces them back to onboarding
+      'onboardingComplete': false,
     }, SetOptions(merge: true));
   }
 
@@ -128,14 +129,10 @@ final householdMembersProvider = StreamProvider<List<Map<String, dynamic>>>((
 ) {
   final userService = ref.watch(userServiceProvider);
   final householdIdAsync = ref.watch(currentHouseholdIdProvider);
-
   if (userService == null) return const Stream.empty();
-
   return householdIdAsync.when(
     data: (householdId) {
-      if (householdId == null || householdId.isEmpty) {
-        return Stream.value([]);
-      }
+      if (householdId == null || householdId.isEmpty) return Stream.value([]);
       return userService.getHouseholdMembers(householdId);
     },
     loading: () => const Stream.empty(),

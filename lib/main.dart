@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'dart:io';
+
 import 'firebase_options.dart';
 
 // Services
@@ -21,6 +24,15 @@ import 'providers/recipe_provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  final config = PurchasesConfiguration(
+    Platform.isIOS
+        ? 'test_MdxTzACgWjSLBnfrzICSADOFPMX'
+        : 'test_MdxTzACgWjSLBnfrzICSADOFPMX',
+  );
+
+  await Purchases.configure(config);
+
   runApp(const ProviderScope(child: FamilyEatsApp()));
 }
 

@@ -5,7 +5,9 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../services/household_service.dart';
 import '../models/household.dart';
+import '../providers/subscription_provider.dart'; // Ensure this exists
 import 'ingredient_manager_screen.dart';
+import 'paywall_screen.dart'; // Ensure this exists
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -15,6 +17,12 @@ class SettingsScreen extends ConsumerWidget {
     final authUser = ref.watch(authStateProvider).value;
     final householdAsync = ref.watch(currentHouseholdProvider);
     final householdMembersAsync = ref.watch(householdMembersProvider);
+
+    // Watch Subscription Status
+    final isPro = ref.watch(isProProvider);
+
+    // Check Guest Status (For Apple Compliance)
+    final isGuest = authUser?.isAnonymous ?? false;
 
     final primaryColor = Theme.of(context).colorScheme.primary;
     final backgroundColor = Theme.of(context).colorScheme.background;
@@ -26,6 +34,26 @@ class SettingsScreen extends ConsumerWidget {
         centerTitle: true,
         backgroundColor: Colors.white,
         scrolledUnderElevation: 0,
+        actions: [
+          // Optional: Show a "Pro" badge if they subscribed
+          if (isPro)
+            Container(
+              margin: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                "PRO",
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.amber,
+                ),
+              ),
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -69,7 +97,7 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            authUser?.email ?? "",
+                            isGuest ? "Guest Account" : (authUser?.email ?? ""),
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.grey.shade600,
@@ -88,6 +116,53 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
+
+            // --- GUEST WARNING BANNER (For Apple Compliance) ---
+            if (isGuest)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.orange,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Guest Mode Active",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange,
+                              ),
+                            ),
+                            Text(
+                              "Your data is only saved on this device. Log out to create a real account.",
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.orange.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             // --- 2. HOUSEHOLD CARD ---
             householdAsync.when(
@@ -155,6 +230,37 @@ class SettingsScreen extends ConsumerWidget {
                         );
                       },
                     ),
+                    if (!isPro) ...[
+                      const Divider(height: 1, indent: 64),
+                      ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.star,
+                            color: Colors.purple.shade400,
+                            size: 20,
+                          ),
+                        ),
+                        title: const Text("Upgrade to Pro"),
+                        subtitle: const Text("Unlock unlimited recipes"),
+                        trailing: const Icon(
+                          Icons.chevron_right,
+                          color: Colors.grey,
+                        ),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PaywallScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                     const Divider(height: 1, indent: 64),
                     ListTile(
                       leading: Container(
@@ -169,8 +275,39 @@ class SettingsScreen extends ConsumerWidget {
                           size: 20,
                         ),
                       ),
-                      title: const Text("Log Out"),
-                      onTap: () => ref.read(authServiceProvider).signOut(),
+                      title: Text(isGuest ? "Exit Guest Mode" : "Log Out"),
+                      onTap: () {
+                        if (isGuest) {
+                          // Warning for Guest Logout
+                          showDialog(
+                            context: context,
+                            builder: (c) => AlertDialog(
+                              title: const Text("Exit Guest Mode?"),
+                              content: const Text(
+                                "You will lose all data unless you sign up properly.",
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(c),
+                                  child: const Text("Cancel"),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.pop(c);
+                                    ref.read(authServiceProvider).signOut();
+                                  },
+                                  child: const Text(
+                                    "Exit & Delete",
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        } else {
+                          ref.read(authServiceProvider).signOut();
+                        }
+                      },
                     ),
                   ],
                 ),
@@ -231,6 +368,14 @@ class SettingsScreen extends ConsumerWidget {
     Color primaryColor,
   ) {
     final isOwner = household.ownerId == currentUserId;
+    final members = membersAsync.value ?? [];
+
+    // Check the Household Owner's Pro Status
+    final isHouseholdPro = ref.watch(householdLimitProvider).value ?? false;
+
+    // Limit Logic:
+    // If Owner is NOT Pro, max members = 2.
+    final isLimitReached = !isHouseholdPro && members.length >= 2;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -246,7 +391,7 @@ class SettingsScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Household Name Header
+              // --- HEADER ---
               Row(
                 children: [
                   Icon(Icons.home_filled, color: primaryColor),
@@ -283,58 +428,105 @@ class SettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                "Share this code to invite others to join.",
+                isLimitReached
+                    ? "Household limit reached (2 members)."
+                    : "Share this code to invite others to join.",
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
               ),
               const SizedBox(height: 16),
 
-              // Invite Code Display
-              InkWell(
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: household.inviteCode));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        "Invite code copied: ${household.inviteCode}",
-                      ),
-                      behavior: SnackBarBehavior.floating,
+              // --- INVITE CODE OR UPGRADE BUTTON ---
+              if (isLimitReached)
+                InkWell(
+                  // Only Owner can fix this by upgrading
+                  onTap: isOwner
+                      ? () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PaywallScreen(),
+                          ),
+                        )
+                      : null,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
                     ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: primaryColor.withOpacity(0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          household.inviteCode,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.lock_outline,
+                          size: 20,
+                          color: Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isOwner
+                              ? "Upgrade to invite more people"
+                              : "Ask owner to upgrade to join",
                           style: TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 20,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: primaryColor,
-                            letterSpacing: 2,
+                            color: Colors.grey.shade700,
                           ),
                         ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                InkWell(
+                  onTap: () {
+                    Clipboard.setData(
+                      ClipboardData(text: household.inviteCode),
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          "Invite code copied: ${household.inviteCode}",
+                        ),
+                        behavior: SnackBarBehavior.floating,
                       ),
-                      Icon(Icons.copy, size: 20, color: primaryColor),
-                    ],
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: primaryColor.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: primaryColor.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            household.inviteCode,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: primaryColor,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.copy, size: 20, color: primaryColor),
+                      ],
+                    ),
                   ),
                 ),
-              ),
 
               const SizedBox(height: 24),
 
-              // Members Section
+              // --- MEMBERS LIST ---
               Text(
                 "MEMBERS",
                 style: TextStyle(
@@ -359,7 +551,9 @@ class SettingsScreen extends ConsumerWidget {
                       final isMe = member['uid'] == currentUserId;
                       final isMemberOwner = member['uid'] == household.ownerId;
 
-                      // Get name from Firestore user doc, fallback to email prefix
+                      // Owner Pro Status Tag (Optional Visual)
+                      final showProBadge = isMemberOwner && isHouseholdPro;
+
                       String memberName = member['name'] as String? ?? '';
                       if (memberName.isEmpty) {
                         final email = member['email'] as String? ?? '';
@@ -395,14 +589,26 @@ class SettingsScreen extends ConsumerWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    isMe ? '$memberName (You)' : memberName,
-                                    style: TextStyle(
-                                      fontWeight: isMe
-                                          ? FontWeight.bold
-                                          : FontWeight.normal,
-                                      fontSize: 15,
-                                    ),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        isMe ? '$memberName (You)' : memberName,
+                                        style: TextStyle(
+                                          fontWeight: isMe
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      if (showProBadge) ...[
+                                        const SizedBox(width: 6),
+                                        const Icon(
+                                          Icons.star,
+                                          size: 12,
+                                          color: Colors.amber,
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                   if (isMemberOwner)
                                     Text(
@@ -430,7 +636,7 @@ class SettingsScreen extends ConsumerWidget {
 
               const SizedBox(height: 24),
 
-              // Leave Household Button (for non-owners)
+              // --- LEAVE / SETTINGS BUTTONS ---
               if (!isOwner)
                 SizedBox(
                   width: double.infinity,
@@ -453,7 +659,6 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
 
-              // Settings for owner
               if (isOwner) ...[
                 const Divider(height: 32),
                 Text(
@@ -483,7 +688,6 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 membersAsync.when(
                   data: (members) {
-                    // Only show transfer option if there are other members
                     final otherMembers = members
                         .where((m) => m['uid'] != currentUserId)
                         .toList();
@@ -565,6 +769,8 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
+
+  // --- HELPER METHODS REMAIN UNCHANGED BELOW ---
 
   void _showLeaveDialog(BuildContext context, WidgetRef ref) async {
     final confirm = await showDialog<bool>(
@@ -663,12 +869,10 @@ class SettingsScreen extends ConsumerWidget {
                         final newName = controller.text.trim();
                         if (newName.isEmpty) return;
 
-                        // Update Firestore
                         await ref
                             .read(userServiceProvider)
                             ?.updateName(newName);
 
-                        // Update Firebase Auth display name
                         await ref
                             .read(authServiceProvider)
                             .currentUser
@@ -718,7 +922,6 @@ class SettingsScreen extends ConsumerWidget {
     List<Map<String, dynamic>> otherMembers,
   ) async {
     if (otherMembers.isEmpty) {
-      // No other members - must delete household instead
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -740,7 +943,6 @@ class SettingsScreen extends ConsumerWidget {
       return;
     }
 
-    // Has other members - must transfer ownership first
     final selectedMember = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -814,7 +1016,6 @@ class SettingsScreen extends ConsumerWidget {
       );
 
       if (confirm == true) {
-        // Transfer ownership then leave
         await ref
             .read(householdServiceProvider)
             .transferOwnership(household.id, selectedMember['uid']);
