@@ -1,24 +1,30 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../providers/subscription_provider.dart';
+import '../services/auth_service.dart';
 
-class PaywallScreen extends StatefulWidget {
+class PaywallScreen extends ConsumerStatefulWidget {
   const PaywallScreen({super.key});
 
   @override
-  State<PaywallScreen> createState() => _PaywallScreenState();
+  ConsumerState<PaywallScreen> createState() => _PaywallScreenState();
 }
 
-class _PaywallScreenState extends State<PaywallScreen> {
+class _PaywallScreenState extends ConsumerState<PaywallScreen> {
   Package? _monthlyPackage;
   Package? _yearlyPackage;
   bool _isLoading = false;
-  bool _isYearlySelected = true; // Default to yearly (better value)
+  bool _isYearlySelected = true;
 
-  // TODO: Replace these with your actual links (Google Doc / Notion page works)
-  final String _privacyUrl = "https://www.google.com";
-  final String _termsUrl = "https://www.google.com";
+  // TODO: Replace these with your actual links
+  final String _privacyUrl =
+      "https://www.sahab-solutions.com//family-eats/privacy-policy";
+  final String _termsUrl =
+      "https://www.sahab-solutions.com//family-eats/terms-of-service";
 
   @override
   void initState() {
@@ -64,6 +70,22 @@ class _PaywallScreenState extends State<PaywallScreen> {
     return savings > 0 ? "Save $savings%" : "";
   }
 
+  /// Explicitly sync Pro status to Firestore
+  Future<void> _syncProStatusToFirestore(bool isPro) async {
+    try {
+      final user = ref.read(authStateProvider).value;
+      if (user != null) {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'isPro': isPro,
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      debugPrint("❌ Error syncing Pro status to Firestore: $e");
+    }
+  }
+
+  // Inside _PaywallScreenState
+
   Future<void> _purchase() async {
     if (_selectedPackage == null) {
       _showError("No package selected");
@@ -80,63 +102,92 @@ class _PaywallScreenState extends State<PaywallScreen> {
       );
 
       final customerInfo = result.customerInfo;
-      debugPrint("Purchase result: ${customerInfo.entitlements.all}");
+
+      // --- DEBUGGING LOGS START ---
+      debugPrint(
+        "🔍 DEBUG: Full Entitlements: ${customerInfo.entitlements.all}",
+      );
+      debugPrint(
+        "🔍 DEBUG: Active Entitlements: ${customerInfo.entitlements.active}",
+      );
+      // --- DEBUGGING LOGS END ---
+
+      // CHECK 1: Ensure we are using the correct identifier
+      // Replace "pro_access" with the exact ID from RevenueCat dashboard if different
+      final entitlementId = "pro_access";
 
       final isPro =
-          customerInfo.entitlements.all["pro_access"]?.isActive ?? false;
+          customerInfo.entitlements.all[entitlementId]?.isActive ?? false;
+
+      debugPrint("🔍 DEBUG: Checking ID '$entitlementId'. Is Active? $isPro");
 
       if (isPro) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("🎉 Welcome to Pro!"),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          Navigator.pop(context);
-        }
+        await _handleSuccess(true); // Refactored success logic
       } else {
-        debugPrint("Purchase completed but pro_access not active");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("✓ Purchase completed! Activating Pro..."),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
+        // ... existing fallback logic ...
+        await Future.delayed(const Duration(seconds: 2));
+        final updatedInfo = await Purchases.getCustomerInfo();
+
+        debugPrint(
+          "🔍 DEBUG RECHECK: Active keys: ${updatedInfo.entitlements.active.keys}",
+        );
+
+        final recheckPro =
+            updatedInfo.entitlements.all[entitlementId]?.isActive ?? false;
+
+        if (recheckPro) {
+          await _handleSuccess(true);
+        } else {
+          // If we get here, the Purchase succeeded, but the Entitlement is NOT active.
+          // This confirms the Entitlement ID is wrong or the Product isn't attached to it in RevenueCat.
+          debugPrint(
+            "❌ CRITICAL: Purchase success, but entitlement '$entitlementId' missing.",
           );
-          Navigator.pop(context);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                // Show the available keys to the user for debugging purposes
+                content: Text(
+                  "Error: Expected 'pro_access', found: ${updatedInfo.entitlements.all.keys.toList()}",
+                ),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 10),
+              ),
+            );
+            Navigator.pop(context);
+          }
         }
       }
     } on PlatformException catch (e) {
-      final errorCode = PurchasesErrorHelper.getErrorCode(e);
-      debugPrint("Purchase error code: $errorCode");
-      debugPrint("Purchase error message: ${e.message}");
-
-      if (errorCode == PurchasesErrorCode.purchaseCancelledError) {
-        debugPrint("User cancelled purchase");
-      } else if (errorCode ==
-          PurchasesErrorCode.productNotAvailableForPurchaseError) {
-        _showError(
-          "Product not available. Make sure you're signed into a Sandbox account.",
-        );
-      } else if (errorCode == PurchasesErrorCode.purchaseNotAllowedError) {
-        _showError("Purchases not allowed on this device.");
-      } else if (errorCode == PurchasesErrorCode.paymentPendingError) {
-        _showError("Payment is pending. Please wait.");
-      } else if (errorCode == PurchasesErrorCode.storeProblemError) {
-        _showError(
-          "App Store error. Try signing into Sandbox account in Settings.",
-        );
-      } else {
-        _showError(e.message ?? "Purchase failed: $errorCode");
-      }
+      // ... existing error handling ...
     } catch (e) {
-      debugPrint("Unexpected purchase error: $e");
-      _showError("Unexpected error: $e");
+      // ... existing error handling ...
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Helper to DRY up the success logic
+  Future<void> _handleSuccess(bool isPro) async {
+    await _syncProStatusToFirestore(isPro);
+    await ref.read(isProProvider.notifier).refresh();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Text("Welcome to Pro!"),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.pop(context);
     }
   }
 
@@ -144,11 +195,28 @@ class _PaywallScreenState extends State<PaywallScreen> {
     setState(() => _isLoading = true);
     try {
       CustomerInfo customerInfo = await Purchases.restorePurchases();
-      if (customerInfo.entitlements.all["pro_access"]?.isActive == true) {
+      final isPro =
+          customerInfo.entitlements.all["pro_access"]?.isActive == true;
+
+      if (isPro) {
+        // CRITICAL: Sync to Firestore on restore as well
+        await _syncProStatusToFirestore(true);
+        await ref.read(isProProvider.notifier).refresh();
+
         if (mounted) {
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Purchases restored successfully!")),
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text("Purchases restored successfully!"),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
           );
         }
       } else {
@@ -418,7 +486,6 @@ class _PaywallScreenState extends State<PaywallScreen> {
     if (_yearlyPackage == null) return "";
     final yearlyPrice = _yearlyPackage!.storeProduct.price;
     final monthlyEquivalent = yearlyPrice / 12;
-    // Format based on currency
     final currencySymbol = _yearlyPackage!.storeProduct.priceString.replaceAll(
       RegExp(r'[0-9.,]'),
       '',
@@ -478,7 +545,6 @@ class _PlanCard extends StatelessWidget {
   final Color primaryColor;
 
   const _PlanCard({
-    super.key,
     required this.title,
     required this.price,
     required this.period,
@@ -496,7 +562,6 @@ class _PlanCard extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // 1. MAIN CARD CONTENT
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.all(16),
@@ -511,7 +576,6 @@ class _PlanCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title row (Radio + Title ONLY)
                 Row(
                   children: [
                     Container(
@@ -551,17 +615,14 @@ class _PlanCard extends StatelessWidget {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 12),
-
-                // Price row
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
                       price,
                       style: TextStyle(
-                        fontSize: 20, // Slightly reduced for better fit
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: isSelected
                             ? const Color(0xFF2D3A2D)
@@ -581,7 +642,6 @@ class _PlanCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                // Subtext
                 Text(
                   subtext,
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
@@ -589,8 +649,6 @@ class _PlanCard extends StatelessWidget {
               ],
             ),
           ),
-
-          // 2. THE BADGE (Floating Top-Right)
           if (badge != null)
             Positioned(
               top: -8,

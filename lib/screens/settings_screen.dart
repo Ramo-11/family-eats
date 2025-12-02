@@ -18,8 +18,9 @@ class SettingsScreen extends ConsumerWidget {
     final householdAsync = ref.watch(currentHouseholdProvider);
     final householdMembersAsync = ref.watch(householdMembersProvider);
 
-    // Watch Subscription Status
-    final isPro = ref.watch(isProProvider);
+    // Use the COMBINED Pro status (RevenueCat + Firestore)
+    final isPro = ref.watch(effectiveProStatusProvider);
+    final isProLoading = ref.watch(proStatusLoadingProvider);
 
     // Check Guest Status (For Apple Compliance)
     final isGuest = authUser?.isAnonymous ?? false;
@@ -294,7 +295,24 @@ class SettingsScreen extends ConsumerWidget {
                       },
                     ),
                     const Divider(height: 1, indent: 64),
-                    if (!isPro)
+
+                    // Pro Status Section - handles loading state
+                    if (isProLoading)
+                      const ListTile(
+                        leading: SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        ),
+                        title: Text("Checking subscription..."),
+                      )
+                    else if (!isPro)
                       ListTile(
                         leading: Container(
                           padding: const EdgeInsets.all(8),
@@ -345,7 +363,7 @@ class SettingsScreen extends ConsumerWidget {
                           );
                         },
                       )
-                    else ...[
+                    else
                       ListTile(
                         leading: Container(
                           padding: const EdgeInsets.all(8),
@@ -360,13 +378,19 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         ),
                         title: const Text("Pro Subscription"),
-                        subtitle: const Text("Active"),
+                        subtitle: const Text(
+                          "Active • Thank you for your support!",
+                        ),
                         trailing: Icon(
                           Icons.check_circle,
                           color: Colors.green.shade400,
                         ),
+                        onTap: () {
+                          // Show subscription management info
+                          _showProManagementSheet(context);
+                        },
                       ),
-                    ],
+
                     const Divider(height: 1, indent: 64),
                     ListTile(
                       leading: Container(
@@ -433,6 +457,100 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  void _showProManagementSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.workspace_premium,
+                size: 48,
+                color: Colors.green.shade600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              "You're a Pro Member!",
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Thank you for supporting FamilyEats",
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  _buildProFeatureRow(Icons.menu_book, "Unlimited Recipes"),
+                  const SizedBox(height: 12),
+                  _buildProFeatureRow(Icons.groups, "Unlimited Members"),
+                  const SizedBox(height: 12),
+                  _buildProFeatureRow(
+                    Icons.calendar_month,
+                    "Unlimited Meal Plans",
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              "To manage your subscription, go to your device's Settings > Subscriptions",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProFeatureRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Colors.green.shade600),
+        const SizedBox(width: 12),
+        Text(
+          text,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+        ),
+        const Spacer(),
+        Icon(Icons.check, size: 18, color: Colors.green.shade600),
+      ],
+    );
+  }
+
   Widget _buildNoHouseholdCard(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -480,8 +598,7 @@ class SettingsScreen extends ConsumerWidget {
     // Check the Household Owner's Pro Status
     final isHouseholdPro = ref.watch(householdLimitProvider).value ?? false;
 
-    // Limit Logic:
-    // If Owner is NOT Pro, max members = 2.
+    // Limit Logic: If Owner is NOT Pro, max members = 2
     final isLimitReached = !isHouseholdPro && members.length >= 2;
 
     return Padding(
