@@ -27,7 +27,7 @@ void main() async {
 
   final config = PurchasesConfiguration(
     Platform.isIOS
-        ? 'test_MdxTzACgWjSLBnfrzICSADOFPMX'
+        ? 'appl_ADwaqVNAwvKvALzvYbmHkZEfuWX'
         : 'test_MdxTzACgWjSLBnfrzICSADOFPMX',
   );
 

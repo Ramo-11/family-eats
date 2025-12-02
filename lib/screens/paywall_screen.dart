@@ -12,7 +12,9 @@ class PaywallScreen extends StatefulWidget {
 
 class _PaywallScreenState extends State<PaywallScreen> {
   Package? _monthlyPackage;
+  Package? _yearlyPackage;
   bool _isLoading = false;
+  bool _isYearlySelected = true; // Default to yearly (better value)
 
   // TODO: Replace these with your actual links (Google Doc / Notion page works)
   final String _privacyUrl = "https://www.google.com";
@@ -27,38 +29,112 @@ class _PaywallScreenState extends State<PaywallScreen> {
   Future<void> _fetchOffers() async {
     try {
       Offerings offerings = await Purchases.getOfferings();
+      debugPrint(
+        "Offerings: ${offerings.current?.availablePackages.map((p) => p.identifier).toList()}",
+      );
+
       if (offerings.current != null &&
           offerings.current!.availablePackages.isNotEmpty) {
         setState(() {
           _monthlyPackage = offerings.current!.monthly;
+          _yearlyPackage = offerings.current!.annual;
         });
+        debugPrint("Monthly: ${_monthlyPackage?.identifier}");
+        debugPrint("Yearly: ${_yearlyPackage?.identifier}");
+      } else {
+        debugPrint("No offerings available!");
       }
     } catch (e) {
       debugPrint("Error fetching offers: $e");
     }
   }
 
+  Package? get _selectedPackage =>
+      _isYearlySelected ? _yearlyPackage : _monthlyPackage;
+
+  String _calculateSavings() {
+    if (_monthlyPackage == null || _yearlyPackage == null) return "";
+
+    final monthlyPrice = _monthlyPackage!.storeProduct.price;
+    final yearlyPrice = _yearlyPackage!.storeProduct.price;
+    final yearlyMonthlyEquivalent = yearlyPrice / 12;
+    final savings =
+        ((monthlyPrice - yearlyMonthlyEquivalent) / monthlyPrice * 100).round();
+
+    return savings > 0 ? "Save $savings%" : "";
+  }
+
   Future<void> _purchase() async {
-    if (_monthlyPackage == null) return;
+    if (_selectedPackage == null) {
+      _showError("No package selected");
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
+      debugPrint("Starting purchase for: ${_selectedPackage!.identifier}");
+
       final result = await Purchases.purchase(
-        PurchaseParams.package(_monthlyPackage!),
+        PurchaseParams.package(_selectedPackage!),
       );
 
       final customerInfo = result.customerInfo;
+      debugPrint("Purchase result: ${customerInfo.entitlements.all}");
 
-      if (customerInfo.entitlements.all["pro_access"]?.isActive == true) {
-        if (mounted) Navigator.pop(context);
-      }
-    } catch (e) {
-      if (e is PlatformException) {
-        final errorCode = PurchasesErrorHelper.getErrorCode(e);
-        if (errorCode != PurchasesErrorCode.purchaseCancelledError) {
-          _showError(e.message ?? "Purchase failed");
+      final isPro =
+          customerInfo.entitlements.all["pro_access"]?.isActive ?? false;
+
+      if (isPro) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("🎉 Welcome to Pro!"),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          Navigator.pop(context);
+        }
+      } else {
+        debugPrint("Purchase completed but pro_access not active");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✓ Purchase completed! Activating Pro..."),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          Navigator.pop(context);
         }
       }
+    } on PlatformException catch (e) {
+      final errorCode = PurchasesErrorHelper.getErrorCode(e);
+      debugPrint("Purchase error code: $errorCode");
+      debugPrint("Purchase error message: ${e.message}");
+
+      if (errorCode == PurchasesErrorCode.purchaseCancelledError) {
+        debugPrint("User cancelled purchase");
+      } else if (errorCode ==
+          PurchasesErrorCode.productNotAvailableForPurchaseError) {
+        _showError(
+          "Product not available. Make sure you're signed into a Sandbox account.",
+        );
+      } else if (errorCode == PurchasesErrorCode.purchaseNotAllowedError) {
+        _showError("Purchases not allowed on this device.");
+      } else if (errorCode == PurchasesErrorCode.paymentPendingError) {
+        _showError("Payment is pending. Please wait.");
+      } else if (errorCode == PurchasesErrorCode.storeProblemError) {
+        _showError(
+          "App Store error. Try signing into Sandbox account in Settings.",
+        );
+      } else {
+        _showError(e.message ?? "Purchase failed: $errorCode");
+      }
+    } catch (e) {
+      debugPrint("Unexpected purchase error: $e");
+      _showError("Unexpected error: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -107,6 +183,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
   Widget build(BuildContext context) {
     final primaryColor = const Color(0xFF4A6C47);
     final scaffoldBg = const Color(0xFFF5F7F5);
+    final savings = _calculateSavings();
 
     return Scaffold(
       backgroundColor: scaffoldBg,
@@ -164,7 +241,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 32),
 
                     _buildFeatureItem(
                       Icons.menu_book,
@@ -175,6 +252,11 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       Icons.groups,
                       "Unlimited Members",
                       "Invite partners, kids, and roommates.",
+                    ),
+                    _buildFeatureItem(
+                      Icons.calendar_month,
+                      "Unlimited Meal Plans",
+                      "Plan as many meals as you need.",
                     ),
                     _buildFeatureItem(
                       Icons.favorite,
@@ -205,37 +287,45 @@ class _PaywallScreenState extends State<PaywallScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Price Tag
-                  if (_monthlyPackage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            _monthlyPackage!.storeProduct.priceString,
-                            style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF2D3A2D),
+                  // Plan Selection Cards
+                  if (_monthlyPackage != null || _yearlyPackage != null) ...[
+                    Row(
+                      children: [
+                        // Yearly Option
+                        if (_yearlyPackage != null)
+                          Expanded(
+                            child: _PlanCard(
+                              title: "Yearly",
+                              price: _yearlyPackage!.storeProduct.priceString,
+                              period: "/year",
+                              subtext: _getYearlyMonthlyPrice(),
+                              badge: savings.isNotEmpty ? savings : null,
+                              isSelected: _isYearlySelected,
+                              onTap: () =>
+                                  setState(() => _isYearlySelected = true),
+                              primaryColor: primaryColor,
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4, left: 4),
-                            child: Text(
-                              "/ month",
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
-                              ),
+                        if (_yearlyPackage != null && _monthlyPackage != null)
+                          const SizedBox(width: 12),
+                        // Monthly Option
+                        if (_monthlyPackage != null)
+                          Expanded(
+                            child: _PlanCard(
+                              title: "Monthly",
+                              price: _monthlyPackage!.storeProduct.priceString,
+                              period: "/month",
+                              subtext: "Flexible billing",
+                              isSelected: !_isYearlySelected,
+                              onTap: () =>
+                                  setState(() => _isYearlySelected = false),
+                              primaryColor: primaryColor,
                             ),
                           ),
-                        ],
-                      ),
-                    )
-                  else
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                  ] else
                     const Padding(
                       padding: EdgeInsets.only(bottom: 20),
                       child: SizedBox(
@@ -250,7 +340,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
-                      onPressed: _isLoading || _monthlyPackage == null
+                      onPressed: _isLoading || _selectedPackage == null
                           ? null
                           : _purchase,
                       style: ElevatedButton.styleFrom(
@@ -269,9 +359,11 @@ class _PaywallScreenState extends State<PaywallScreen> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text(
-                              "Subscribe",
-                              style: TextStyle(
+                          : Text(
+                              _isYearlySelected
+                                  ? "Subscribe Yearly"
+                                  : "Subscribe Monthly",
+                              style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -322,9 +414,21 @@ class _PaywallScreenState extends State<PaywallScreen> {
     );
   }
 
+  String _getYearlyMonthlyPrice() {
+    if (_yearlyPackage == null) return "";
+    final yearlyPrice = _yearlyPackage!.storeProduct.price;
+    final monthlyEquivalent = yearlyPrice / 12;
+    // Format based on currency
+    final currencySymbol = _yearlyPackage!.storeProduct.priceString.replaceAll(
+      RegExp(r'[0-9.,]'),
+      '',
+    );
+    return "${currencySymbol}${monthlyEquivalent.toStringAsFixed(2)}/month";
+  }
+
   Widget _buildFeatureItem(IconData icon, String title, String subtitle) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24.0),
+      padding: const EdgeInsets.only(bottom: 20.0),
       child: Row(
         children: [
           Container(
@@ -357,6 +461,165 @@ class _PaywallScreenState extends State<PaywallScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlanCard extends StatelessWidget {
+  final String title;
+  final String price;
+  final String period;
+  final String subtext;
+  final String? badge;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final Color primaryColor;
+
+  const _PlanCard({
+    super.key,
+    required this.title,
+    required this.price,
+    required this.period,
+    required this.subtext,
+    this.badge,
+    required this.isSelected,
+    required this.onTap,
+    required this.primaryColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // 1. MAIN CARD CONTENT
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isSelected ? primaryColor.withOpacity(0.05) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected ? primaryColor : Colors.grey.shade300,
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Title row (Radio + Title ONLY)
+                Row(
+                  children: [
+                    Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected
+                              ? primaryColor
+                              : Colors.grey.shade400,
+                          width: 2,
+                        ),
+                        color: isSelected ? primaryColor : Colors.transparent,
+                      ),
+                      child: isSelected
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.white,
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        title,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: isSelected
+                              ? primaryColor
+                              : Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Price row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      price,
+                      style: TextStyle(
+                        fontSize: 20, // Slightly reduced for better fit
+                        fontWeight: FontWeight.bold,
+                        color: isSelected
+                            ? const Color(0xFF2D3A2D)
+                            : Colors.grey.shade800,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        period,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                // Subtext
+                Text(
+                  subtext,
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. THE BADGE (Floating Top-Right)
+          if (badge != null)
+            Positioned(
+              top: -8,
+              right: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFA726), Color(0xFFFF9800)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  badge!,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

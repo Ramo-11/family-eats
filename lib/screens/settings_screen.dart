@@ -5,9 +5,9 @@ import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import '../services/household_service.dart';
 import '../models/household.dart';
-import '../providers/subscription_provider.dart'; // Ensure this exists
+import '../providers/subscription_provider.dart';
 import 'ingredient_manager_screen.dart';
-import 'paywall_screen.dart'; // Ensure this exists
+import 'paywall_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -34,26 +34,6 @@ class SettingsScreen extends ConsumerWidget {
         centerTitle: true,
         backgroundColor: Colors.white,
         scrolledUnderElevation: 0,
-        actions: [
-          // Optional: Show a "Pro" badge if they subscribed
-          if (isPro)
-            Container(
-              margin: const EdgeInsets.only(right: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                "PRO",
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.amber,
-                ),
-              ),
-            ),
-        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -70,30 +50,112 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 36,
-                      backgroundColor: primaryColor.withOpacity(0.1),
-                      child: Text(
-                        _getInitials(authUser?.displayName),
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: primaryColor,
+                    Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 36,
+                          backgroundColor: isPro
+                              ? Colors.amber.shade100
+                              : primaryColor.withOpacity(0.1),
+                          child: Text(
+                            _getInitials(authUser?.displayName),
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: isPro
+                                  ? Colors.amber.shade700
+                                  : primaryColor,
+                            ),
+                          ),
                         ),
-                      ),
+                        // Pro Badge on Avatar
+                        if (isPro)
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.amber,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.star,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(width: 20),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            authUser?.displayName ?? "User",
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black87,
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  authUser?.displayName ?? "User",
+                                  style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.black87,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (isPro) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.amber.shade400,
+                                        Colors.amber.shade600,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.amber.withOpacity(0.3),
+                                        blurRadius: 4,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.workspace_premium,
+                                        size: 12,
+                                        color: Colors.white,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        "PRO",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -177,6 +239,7 @@ class SettingsScreen extends ConsumerWidget {
                   authUser?.uid,
                   householdMembersAsync,
                   primaryColor,
+                  isPro,
                 );
               },
               loading: () => const Padding(
@@ -216,7 +279,7 @@ class SettingsScreen extends ConsumerWidget {
                           size: 20,
                         ),
                       ),
-                      title: const Text("Custom Ingredient"),
+                      title: const Text("Custom Ingredients"),
                       trailing: const Icon(
                         Icons.chevron_right,
                         color: Colors.grey,
@@ -230,26 +293,48 @@ class SettingsScreen extends ConsumerWidget {
                         );
                       },
                     ),
-                    if (!isPro) ...[
-                      const Divider(height: 1, indent: 64),
+                    const Divider(height: 1, indent: 64),
+                    if (!isPro)
                       ListTile(
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.purple.shade50,
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.amber.shade100,
+                                Colors.amber.shade200,
+                              ],
+                            ),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(
-                            Icons.star,
-                            color: Colors.purple.shade400,
+                            Icons.workspace_premium,
+                            color: Colors.amber.shade700,
                             size: 20,
                           ),
                         ),
-                        title: const Text("Upgrade to Pro"),
-                        subtitle: const Text("Unlock unlimited recipes"),
-                        trailing: const Icon(
-                          Icons.chevron_right,
-                          color: Colors.grey,
+                        title: const Text(
+                          "Upgrade to Pro",
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text("Unlimited recipes & members"),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.amber,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            "Upgrade",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                         onTap: () {
                           Navigator.push(
@@ -259,6 +344,27 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                           );
                         },
+                      )
+                    else ...[
+                      ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.verified,
+                            color: Colors.green.shade400,
+                            size: 20,
+                          ),
+                        ),
+                        title: const Text("Pro Subscription"),
+                        subtitle: const Text("Active"),
+                        trailing: Icon(
+                          Icons.check_circle,
+                          color: Colors.green.shade400,
+                        ),
                       ),
                     ],
                     const Divider(height: 1, indent: 64),
@@ -366,6 +472,7 @@ class SettingsScreen extends ConsumerWidget {
     String? currentUserId,
     AsyncValue<List<Map<String, dynamic>>> membersAsync,
     Color primaryColor,
+    bool currentUserIsPro,
   ) {
     final isOwner = household.ownerId == currentUserId;
     final members = membersAsync.value ?? [];
@@ -394,51 +501,130 @@ class SettingsScreen extends ConsumerWidget {
               // --- HEADER ---
               Row(
                 children: [
-                  Icon(Icons.home_filled, color: primaryColor),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      household.name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isHouseholdPro
+                          ? Colors.amber.shade50
+                          : primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.home_filled,
+                      color: isHouseholdPro ? Colors.amber : primaryColor,
                     ),
                   ),
-                  if (isOwner)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'Owner',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: primaryColor,
-                          fontWeight: FontWeight.w600,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                household.name,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isHouseholdPro) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade100,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.workspace_premium,
+                                      size: 12,
+                                      color: Colors.amber.shade700,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      "PRO",
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.amber.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                      ),
+                        if (isOwner)
+                          Text(
+                            "You're the owner",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                      ],
                     ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
+
+              // Limits Info Banner (if not pro)
+              if (!isHouseholdPro)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.shade100),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 18,
+                        color: Colors.blue.shade600,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          isOwner
+                              ? "Free plan: 2 members, 5 recipes. Upgrade to unlock unlimited!"
+                              : "Free plan: 2 members, 5 recipes. Ask owner to upgrade.",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (!isHouseholdPro) const SizedBox(height: 16),
+
+              // Invite Code Section
               Text(
                 isLimitReached
-                    ? "Household limit reached (2 members)."
-                    : "Share this code to invite others to join.",
+                    ? "Household limit reached (2 members)"
+                    : "Share this code to invite others",
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
               // --- INVITE CODE OR UPGRADE BUTTON ---
               if (isLimitReached)
                 InkWell(
-                  // Only Owner can fix this by upgrading
                   onTap: isOwner
                       ? () => Navigator.push(
                           context,
@@ -466,8 +652,8 @@ class SettingsScreen extends ConsumerWidget {
                         const SizedBox(width: 8),
                         Text(
                           isOwner
-                              ? "Upgrade to invite more people"
-                              : "Ask owner to upgrade to join",
+                              ? "Upgrade to invite more"
+                              : "Ask owner to upgrade",
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -527,14 +713,27 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: 24),
 
               // --- MEMBERS LIST ---
-              Text(
-                "MEMBERS",
-                style: TextStyle(
-                  color: Colors.grey.shade400,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
+              Row(
+                children: [
+                  Text(
+                    "MEMBERS",
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    "${members.length}${!isHouseholdPro ? '/2' : ''}",
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
 
@@ -550,9 +749,7 @@ class SettingsScreen extends ConsumerWidget {
                     children: members.map((member) {
                       final isMe = member['uid'] == currentUserId;
                       final isMemberOwner = member['uid'] == household.ownerId;
-
-                      // Owner Pro Status Tag (Optional Visual)
-                      final showProBadge = isMemberOwner && isHouseholdPro;
+                      final memberIsPro = member['isPro'] == true;
 
                       String memberName = member['name'] as String? ?? '';
                       if (memberName.isEmpty) {
@@ -564,25 +761,67 @@ class SettingsScreen extends ConsumerWidget {
                         }
                       }
 
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isMe
+                              ? primaryColor.withOpacity(0.05)
+                              : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isMe
+                                ? primaryColor.withOpacity(0.2)
+                                : Colors.grey.shade200,
+                          ),
+                        ),
                         child: Row(
                           children: [
-                            CircleAvatar(
-                              radius: 18,
-                              backgroundColor: isMe
-                                  ? primaryColor.withOpacity(0.2)
-                                  : Colors.grey.shade100,
-                              child: Text(
-                                _getInitials(memberName),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: isMe
-                                      ? primaryColor
-                                      : Colors.grey.shade700,
+                            Stack(
+                              children: [
+                                CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: isMemberOwner && memberIsPro
+                                      ? Colors.amber.shade100
+                                      : isMe
+                                      ? primaryColor.withOpacity(0.2)
+                                      : Colors.grey.shade200,
+                                  child: Text(
+                                    _getInitials(memberName),
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: isMemberOwner && memberIsPro
+                                          ? Colors.amber.shade700
+                                          : isMe
+                                          ? primaryColor
+                                          : Colors.grey.shade700,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                // Pro indicator on avatar
+                                if (memberIsPro)
+                                  Positioned(
+                                    bottom: 0,
+                                    right: 0,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.star,
+                                        size: 8,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -591,33 +830,105 @@ class SettingsScreen extends ConsumerWidget {
                                 children: [
                                   Row(
                                     children: [
-                                      Text(
-                                        isMe ? '$memberName (You)' : memberName,
-                                        style: TextStyle(
-                                          fontWeight: isMe
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                          fontSize: 15,
+                                      Flexible(
+                                        child: Text(
+                                          memberName,
+                                          style: TextStyle(
+                                            fontWeight: isMe
+                                                ? FontWeight.bold
+                                                : FontWeight.w500,
+                                            fontSize: 15,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
-                                      if (showProBadge) ...[
+                                      if (isMe) ...[
                                         const SizedBox(width: 6),
-                                        const Icon(
-                                          Icons.star,
-                                          size: 12,
-                                          color: Colors.amber,
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: primaryColor.withOpacity(
+                                              0.1,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            "You",
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: primaryColor,
+                                            ),
+                                          ),
                                         ),
                                       ],
                                     ],
                                   ),
-                                  if (isMemberOwner)
-                                    Text(
-                                      'Owner',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade500,
-                                      ),
-                                    ),
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      if (isMemberOwner)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            "Owner",
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.blue.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                      if (isMemberOwner && memberIsPro)
+                                        const SizedBox(width: 6),
+                                      if (memberIsPro)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.workspace_premium,
+                                                size: 10,
+                                                color: Colors.amber.shade700,
+                                              ),
+                                              const SizedBox(width: 2),
+                                              Text(
+                                                "Pro",
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.amber.shade700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -770,7 +1081,7 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  // --- HELPER METHODS REMAIN UNCHANGED BELOW ---
+  // --- HELPER METHODS ---
 
   void _showLeaveDialog(BuildContext context, WidgetRef ref) async {
     final confirm = await showDialog<bool>(
