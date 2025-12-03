@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart'; // Import required for direct instance access
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
@@ -36,6 +37,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     try {
       if (_isLogin) {
+        // --- LOGIN FLOW ---
         await ref
             .read(authServiceProvider)
             .signIn(
@@ -43,30 +45,51 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               _passwordController.text.trim(),
             );
       } else {
-        // Sign up flow
-        await ref
-            .read(authServiceProvider)
-            .signUp(
-              _emailController.text.trim(),
-              _passwordController.text.trim(),
-              _nameController.text.trim(),
-            );
+        // --- SIGN UP FLOW ---
+        final name = _nameController.text.trim();
+        final email = _emailController.text.trim();
+        final password = _passwordController.text.trim();
 
-        // Initialize user document (without household - that comes in onboarding)
-        final user = ref.read(authServiceProvider).currentUser;
-        if (user != null) {
-          final userService = UserService(user.uid);
-          await userService.initializeUser(
-            _nameController.text.trim(),
-            _emailController.text.trim(),
+        // 1. Create the Auth User
+        await ref.read(authServiceProvider).signUp(email, password, name);
+
+        // 2. Initialize Firestore Document (CRITICAL FIX)
+        // We use FirebaseAuth.instance.currentUser directly because the
+        // Riverpod provider (authServiceProvider) might not have updated yet.
+        final firebaseUser = FirebaseAuth.instance.currentUser;
+
+        if (firebaseUser != null) {
+          final userService = UserService(firebaseUser.uid);
+          // Create the user doc in Firestore
+          await userService.initializeUser(name, email);
+
+          // 3. Force Refresh
+          // Tell Riverpod to reload the user/household providers immediately
+          ref.invalidate(userServiceProvider);
+          ref.invalidate(currentHouseholdIdProvider);
+        } else {
+          throw Exception(
+            "Account created but user not found. Please try logging in.",
           );
         }
+      }
+
+      // 4. Navigation
+      // If your main.dart is listening to authStateChanges, this might happen automatically.
+      // If not, we manually pop the login screen or navigate.
+      if (mounted) {
+        // Option A: If LoginScreen was pushed on top of something, pop it.
+        // Navigator.pop(context);
+
+        // Option B: If LoginScreen is your root, the stream in main.dart will handle it.
+        // However, to be safe, you can try to unfocus the keyboard.
+        FocusScope.of(context).unfocus();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString()),
+            content: Text("Error: ${e.toString()}"),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -84,18 +107,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final authService = ref.read(authServiceProvider);
       await authService.signInAnonymously();
 
-      final user = authService.currentUser;
+      // 2. Get User (CRITICAL FIX: Use direct instance)
+      final user = FirebaseAuth.instance.currentUser;
+
       if (user != null) {
-        // 2. Initialize a generic User document (No PII)
+        // 3. Initialize a generic User document
         final userService = UserService(user.uid);
         await userService.initializeUser('Guest Chef', '');
 
-        // 3. Auto-create a household so they skip the Onboarding Screen completely
+        // 4. Auto-create a household (Skip onboarding)
         final householdService = ref.read(householdServiceProvider);
         await userService.createAndJoinHousehold(
           'My Kitchen',
           householdService,
         );
+
+        // 5. Force Refresh
+        ref.invalidate(userServiceProvider);
+        ref.invalidate(currentHouseholdIdProvider);
       }
     } catch (e) {
       if (mounted) {
@@ -123,10 +152,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               children: [
                 // Logo & Branding
                 Image.asset(
-                  'assets/images/logo.png',
+                  'assets/images/logo.png', // Ensure this asset exists
                   height: 90,
                   width: 90,
                   fit: BoxFit.contain,
+                  errorBuilder: (c, o, s) => const Icon(
+                    Icons.restaurant_menu,
+                    size: 90,
+                    color: Color(0xFF4A6C47),
+                  ),
                 ),
                 const SizedBox(height: 24),
                 const Text(

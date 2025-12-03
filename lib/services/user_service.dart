@@ -18,14 +18,15 @@ class UserService {
 
   /// Initialize a new user (called after signup)
   Future<void> initializeUser(String name, String email) async {
+    // Changed to merge: true to prevents accidental overwrites if called twice
     await _db.collection('users').doc(uid).set({
       'name': name,
       'email': email,
       'householdId': null,
       'onboardingComplete': false,
-      'isPro': false, // Default to free
+      'isPro': false,
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
 
   Future<void> updateProStatus(bool isPro) async {
@@ -45,6 +46,18 @@ class UserService {
     return _db.collection('users').doc(uid).snapshots().map((doc) {
       return doc.data()?['onboardingComplete'] == true;
     });
+  }
+
+  /// Get user's Pro status
+  Future<bool> getProStatus() async {
+    final doc = await _db.collection('users').doc(uid).get();
+    return doc.data()?['isPro'] == true;
+  }
+
+  /// Get user's household ID
+  Future<String?> getHouseholdId() async {
+    final doc = await _db.collection('users').doc(uid).get();
+    return doc.data()?['householdId'] as String?;
   }
 
   /// Join an existing household by ID
@@ -87,6 +100,41 @@ class UserService {
     }, SetOptions(merge: true));
   }
 
+  /// Delete user's Firestore document
+  Future<void> deleteUserData() async {
+    await _db.collection('users').doc(uid).delete();
+  }
+
+  /// Comprehensive account deletion - handles all cleanup
+  /// Returns a result object with success/failure info
+  Future<DeleteAccountResult> deleteAccountCompletely({
+    required HouseholdService householdService,
+    String? householdId,
+    bool isOwner = false,
+    int memberCount = 0,
+  }) async {
+    try {
+      // Step 1: Handle household cleanup
+      if (householdId != null && householdId.isNotEmpty) {
+        if (isOwner && memberCount <= 1) {
+          // Owner + Single Member: Delete the entire household
+          await householdService.deleteHousehold(householdId);
+        }
+        // CRITICAL FIX:
+        // If they are a member (not owner), we do NOT call leaveHousehold().
+        // We simply delete their user document in Step 2.
+        // Calling leaveHousehold() writes to the doc we are about to delete, causing conflicts.
+      }
+
+      // Step 2: Delete user document from Firestore
+      await deleteUserData();
+
+      return DeleteAccountResult(success: true);
+    } catch (e) {
+      return DeleteAccountResult(success: false, error: e.toString());
+    }
+  }
+
   /// Get ALL members of a specific household
   Stream<List<Map<String, dynamic>>> getHouseholdMembers(String householdId) {
     return _db
@@ -106,6 +154,14 @@ class UserService {
   Future<void> updateName(String name) async {
     await _db.collection('users').doc(uid).update({'name': name.trim()});
   }
+}
+
+/// Result class for delete account operation
+class DeleteAccountResult {
+  final bool success;
+  final String? error;
+
+  DeleteAccountResult({required this.success, this.error});
 }
 
 // PROVIDERS

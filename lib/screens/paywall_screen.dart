@@ -35,9 +35,6 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
   Future<void> _fetchOffers() async {
     try {
       Offerings offerings = await Purchases.getOfferings();
-      debugPrint(
-        "Offerings: ${offerings.current?.availablePackages.map((p) => p.identifier).toList()}",
-      );
 
       if (offerings.current != null &&
           offerings.current!.availablePackages.isNotEmpty) {
@@ -45,8 +42,6 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
           _monthlyPackage = offerings.current!.monthly;
           _yearlyPackage = offerings.current!.annual;
         });
-        debugPrint("Monthly: ${_monthlyPackage?.identifier}");
-        debugPrint("Yearly: ${_yearlyPackage?.identifier}");
       } else {
         debugPrint("No offerings available!");
       }
@@ -102,15 +97,6 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
       );
 
       final customerInfo = result.customerInfo;
-
-      // --- DEBUGGING LOGS START ---
-      debugPrint(
-        "🔍 DEBUG: Full Entitlements: ${customerInfo.entitlements.all}",
-      );
-      debugPrint(
-        "🔍 DEBUG: Active Entitlements: ${customerInfo.entitlements.active}",
-      );
-      // --- DEBUGGING LOGS END ---
 
       // CHECK 1: Ensure we are using the correct identifier
       // Replace "pro_access" with the exact ID from RevenueCat dashboard if different

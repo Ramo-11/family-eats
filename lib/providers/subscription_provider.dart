@@ -62,7 +62,6 @@ class ProStatusNotifier extends StateNotifier<bool> {
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'isPro': isPro,
         }, SetOptions(merge: true));
-        debugPrint("✅ Synced Pro status to Firestore: $isPro");
       }
     } catch (e) {
       debugPrint("❌ Error syncing Pro status to Firestore: $e");

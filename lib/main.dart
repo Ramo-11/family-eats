@@ -28,7 +28,7 @@ void main() async {
   final config = PurchasesConfiguration(
     Platform.isIOS
         ? 'appl_ADwaqVNAwvKvALzvYbmHkZEfuWX'
-        : 'test_MdxTzACgWjSLBnfrzICSADOFPMX',
+        : 'appl_ADwaqVNAwvKvALzvYbmHkZEfuWX',
   );
 
   await Purchases.configure(config);
