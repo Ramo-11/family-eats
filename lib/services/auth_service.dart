@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import '../providers/subscription_provider.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -17,37 +18,59 @@ class AuthService {
   // Login
   Future<void> signIn(String email, String password) async {
     try {
+      // Clear any cached household ID from previous session
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('householdId');
+
       final credential = await _auth.signInWithEmailAndPassword(
-        email: email,
+        email: email.trim(),
         password: password,
       );
 
       if (credential.user != null) {
         // 1. Sync RevenueCat Identity (Non-blocking)
-        try {
-          await Purchases.logIn(credential.user!.uid);
-        } catch (e) {
-          debugPrint("⚠️ [AuthService] RevenueCat login failed: $e");
-        }
+        await _syncRevenueCatIdentity(credential.user!);
 
         // 2. Sync display name from Firestore if it's missing in Auth
-        if (credential.user!.displayName == null ||
-            credential.user!.displayName!.isEmpty) {
-          final userDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(credential.user!.uid)
-              .get();
-          final storedName = userDoc.data()?['name'] as String?;
-          if (storedName != null && storedName.isNotEmpty) {
-            await credential.user!.updateDisplayName(storedName);
-            await credential.user!.reload();
-          }
-        }
+        await _syncDisplayName(credential.user!);
+
+        debugPrint("✅ Sign in successful for ${credential.user!.email}");
       }
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
+    }
+  }
+
+  Future<void> _syncRevenueCatIdentity(User user) async {
+    // Don't sync if we're in the middle of deleting an account
+    if (AccountDeletionState.isDeleting) return;
+
+    try {
+      await Purchases.logIn(user.uid);
+      debugPrint("✅ RevenueCat identity synced");
+    } catch (e) {
+      debugPrint("⚠️ [AuthService] RevenueCat login failed: $e");
+      // Non-fatal - continue even if RevenueCat fails
+    }
+  }
+
+  Future<void> _syncDisplayName(User user) async {
+    try {
+      if (user.displayName == null || user.displayName!.isEmpty) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        final storedName = userDoc.data()?['name'] as String?;
+        if (storedName != null && storedName.isNotEmpty) {
+          await user.updateDisplayName(storedName);
+          await user.reload();
+          debugPrint("✅ Display name synced from Firestore: $storedName");
+        }
+      }
+    } catch (e) {
+      debugPrint("⚠️ [AuthService] Display name sync failed: $e");
+      // Non-fatal - continue even if sync fails
     }
   }
 
@@ -55,7 +78,7 @@ class AuthService {
     final user = _auth.currentUser;
     if (user == null) {
       debugPrint("❌ [AuthService] Reauth failed: User is null");
-      return;
+      throw "No user currently signed in";
     }
 
     debugPrint(
@@ -80,44 +103,66 @@ class AuthService {
   }
 
   Future<void> deleteAccount() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      debugPrint("❌ [AuthService] Delete failed: No user");
+      throw "No user to delete";
+    }
+
     try {
       debugPrint(
-        "🚫 [AuthService] Deleting Firebase Auth User: ${_auth.currentUser?.uid}...",
+        "🚫 [AuthService] Deleting Firebase Auth User: ${user.uid}...",
       );
 
-      // Attempt to clear RevenueCat identity first
+      // Clear RevenueCat identity first (but don't let it trigger Firestore writes)
+      // The AccountDeletionState.isDeleting flag should already be set
       try {
         await Purchases.logOut();
+        debugPrint("✅ RevenueCat logged out");
       } catch (e) {
         debugPrint(
           "⚠️ [AuthService] RevenueCat logout during delete failed: $e",
         );
+        // Continue with deletion even if RevenueCat fails
       }
 
-      await _auth.currentUser?.delete();
+      // Clear local preferences
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+        debugPrint("✅ Local preferences cleared");
+      } catch (e) {
+        debugPrint("⚠️ [AuthService] Failed to clear preferences: $e");
+      }
+
+      // Small delay to ensure RevenueCat listener callbacks have been processed
+      // and blocked by the AccountDeletionState.isDeleting flag
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // Delete the Firebase Auth user
+      await user.delete();
       debugPrint("✅ [AuthService] Firebase Auth User deleted successfully.");
     } on FirebaseAuthException catch (e) {
       debugPrint("❌ [AuthService] Delete failed: ${e.code} - ${e.message}");
       throw _handleAuthError(e);
     } catch (e) {
       debugPrint("❌ [AuthService] Delete failed with unknown error: $e");
-      throw e.toString();
+      rethrow;
     }
   }
 
   Future<void> signInAnonymously() async {
     try {
+      // Clear any cached data
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('householdId');
+
       final result = await _auth.signInAnonymously();
 
-      // Sync RevenueCat Identity
+      // Sync RevenueCat Identity for anonymous user
       if (result.user != null) {
-        try {
-          await Purchases.logIn(result.user!.uid);
-        } catch (e) {
-          debugPrint("⚠️ [AuthService] RevenueCat anon login failed: $e");
-        }
+        await _syncRevenueCatIdentity(result.user!);
+        debugPrint("✅ Anonymous sign in successful");
       }
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
@@ -127,26 +172,32 @@ class AuthService {
   // Sign Up (Create new account)
   Future<void> signUp(String email, String password, String name) async {
     try {
-      final credential = await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      // Clear any cached data
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('householdId');
 
-      // Update the Profile with the name
-      await credential.user?.updateDisplayName(name);
-      await credential.user?.reload();
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
 
-      // Sync RevenueCat Identity
+      // Update the Profile with the name
       if (credential.user != null) {
+        await credential.user!.updateDisplayName(name.trim());
+        await credential.user!.reload();
+
+        // Sync RevenueCat Identity
         try {
           await Purchases.logIn(credential.user!.uid);
-          await Purchases.setDisplayName(name);
-          await Purchases.setEmail(email);
+          await Purchases.setDisplayName(name.trim());
+          await Purchases.setEmail(email.trim());
+          debugPrint("✅ RevenueCat identity set for new user");
         } catch (e) {
-          debugPrint("⚠️ [AuthService] RevenueCat signup failed: $e");
+          debugPrint("⚠️ [AuthService] RevenueCat signup sync failed: $e");
+          // Non-fatal
         }
+
+        debugPrint("✅ Sign up successful for ${credential.user!.email}");
       }
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
@@ -155,15 +206,35 @@ class AuthService {
 
   // Sign Out
   Future<void> signOut() async {
-    // Reset RevenueCat to anonymous/empty state so next user doesn't inherit Pro
     try {
-      await Purchases.logOut();
-    } catch (e) {
-      debugPrint("⚠️ [AuthService] RevenueCat logout failed: $e");
-    }
+      debugPrint("🚪 [AuthService] Signing out...");
 
-    // Proceed with Firebase Sign Out
-    await _auth.signOut();
+      // Reset RevenueCat to anonymous/empty state so next user doesn't inherit Pro
+      try {
+        await Purchases.logOut();
+        debugPrint("✅ RevenueCat logged out");
+      } catch (e) {
+        debugPrint("⚠️ [AuthService] RevenueCat logout failed: $e");
+        // Continue with sign out even if RevenueCat fails
+      }
+
+      // Clear local preferences
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('householdId');
+        await prefs.remove('has_seen_tutorial');
+      } catch (e) {
+        debugPrint("⚠️ [AuthService] Failed to clear preferences: $e");
+      }
+
+      // Proceed with Firebase Sign Out
+      await _auth.signOut();
+      debugPrint("✅ [AuthService] Sign out successful");
+    } catch (e) {
+      debugPrint("❌ [AuthService] Sign out error: $e");
+      // Even if there's an error, try to sign out
+      await _auth.signOut();
+    }
   }
 
   // Helper to make Firebase errors readable for humans
@@ -189,6 +260,8 @@ class AuthService {
         return 'Network error. Please check your internet connection.';
       case 'operation-not-allowed':
         return 'Email/password sign-in is not enabled.';
+      case 'requires-recent-login':
+        return 'Please log out and log back in to perform this action.';
       default:
         return 'Authentication failed: ${e.message ?? e.code}';
     }

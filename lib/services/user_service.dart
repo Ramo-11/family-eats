@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'auth_service.dart';
 import 'household_service.dart';
@@ -11,69 +12,143 @@ class UserService {
 
   /// Get the current user's profile stream
   Stream<Map<String, dynamic>?> getUserProfile() {
-    return _db.collection('users').doc(uid).snapshots().map((snapshot) {
-      return snapshot.data();
-    });
+    return _db
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.data();
+        })
+        .handleError((e) {
+          debugPrint("Error getting user profile: $e");
+          return null;
+        });
   }
 
   /// Initialize a new user (called after signup)
   Future<void> initializeUser(String name, String email) async {
-    // Changed to merge: true to prevents accidental overwrites if called twice
-    await _db.collection('users').doc(uid).set({
-      'name': name,
-      'email': email,
-      'householdId': null,
-      'onboardingComplete': false,
-      'isPro': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    try {
+      // Check if user document already exists
+      final existingDoc = await _db.collection('users').doc(uid).get();
+
+      if (existingDoc.exists) {
+        // Update existing document
+        await _db.collection('users').doc(uid).update({
+          'name': name.trim(),
+          'email': email.trim(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint("✅ Updated existing user document: $uid");
+      } else {
+        // Create new document
+        await _db.collection('users').doc(uid).set({
+          'name': name.trim(),
+          'email': email.trim(),
+          'householdId': null,
+          'onboardingComplete': false,
+          'isPro': false,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint("✅ Created new user document: $uid");
+      }
+    } catch (e) {
+      debugPrint("❌ Error initializing user: $e");
+      rethrow;
+    }
   }
 
   Future<void> updateProStatus(bool isPro) async {
-    await _db.collection('users').doc(uid).set({
-      'isPro': isPro,
-    }, SetOptions(merge: true));
+    try {
+      await _db.collection('users').doc(uid).set({
+        'isPro': isPro,
+        'proUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      debugPrint("✅ Pro status updated: $isPro");
+    } catch (e) {
+      debugPrint("❌ Error updating pro status: $e");
+      rethrow;
+    }
   }
 
   /// Check if user has completed onboarding
   Future<bool> hasCompletedOnboarding() async {
-    final doc = await _db.collection('users').doc(uid).get();
-    return doc.data()?['onboardingComplete'] == true;
+    try {
+      final doc = await _db.collection('users').doc(uid).get();
+      return doc.data()?['onboardingComplete'] == true;
+    } catch (e) {
+      debugPrint("Error checking onboarding status: $e");
+      return false;
+    }
   }
 
   /// Stream to check onboarding status
   Stream<bool> watchOnboardingStatus() {
-    return _db.collection('users').doc(uid).snapshots().map((doc) {
-      return doc.data()?['onboardingComplete'] == true;
-    });
+    return _db
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .map((doc) {
+          return doc.data()?['onboardingComplete'] == true;
+        })
+        .handleError((e) {
+          debugPrint("Error watching onboarding status: $e");
+          return false;
+        });
   }
 
   /// Get user's Pro status
   Future<bool> getProStatus() async {
-    final doc = await _db.collection('users').doc(uid).get();
-    return doc.data()?['isPro'] == true;
+    try {
+      final doc = await _db.collection('users').doc(uid).get();
+      return doc.data()?['isPro'] == true;
+    } catch (e) {
+      debugPrint("Error getting pro status: $e");
+      return false;
+    }
   }
 
   /// Get user's household ID
   Future<String?> getHouseholdId() async {
-    final doc = await _db.collection('users').doc(uid).get();
-    return doc.data()?['householdId'] as String?;
+    try {
+      final doc = await _db.collection('users').doc(uid).get();
+      return doc.data()?['householdId'] as String?;
+    } catch (e) {
+      debugPrint("Error getting household ID: $e");
+      return null;
+    }
   }
 
   /// Join an existing household by ID
   /// Also syncs the user's display name from Firebase Auth
   Future<void> joinHousehold(String householdId, {String? displayName}) async {
-    final updateData = <String, dynamic>{
-      'householdId': householdId,
-      'onboardingComplete': true,
-    };
-    if (displayName != null && displayName.isNotEmpty) {
-      updateData['name'] = displayName;
+    try {
+      // Verify household exists first
+      final householdDoc = await _db
+          .collection('households')
+          .doc(householdId)
+          .get();
+      if (!householdDoc.exists) {
+        throw "Household not found";
+      }
+
+      final updateData = <String, dynamic>{
+        'householdId': householdId,
+        'onboardingComplete': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (displayName != null && displayName.isNotEmpty) {
+        updateData['name'] = displayName.trim();
+      }
+      await _db
+          .collection('users')
+          .doc(uid)
+          .set(updateData, SetOptions(merge: true));
+      debugPrint("✅ Joined household: $householdId");
+    } catch (e) {
+      debugPrint("❌ Error joining household: $e");
+      rethrow;
     }
-    await _db
-        .collection('users')
-        .doc(uid)
-        .set(updateData, SetOptions(merge: true));
   }
 
   /// Create and join a new household
@@ -81,28 +156,48 @@ class UserService {
     String householdName,
     HouseholdService householdService,
   ) async {
-    final householdId = await householdService.createHousehold(
-      name: householdName,
-      ownerId: uid,
-    );
-    await _db.collection('users').doc(uid).set({
-      'householdId': householdId,
-      'onboardingComplete': true,
-    }, SetOptions(merge: true));
-    return householdId;
+    try {
+      final householdId = await householdService.createHousehold(
+        name: householdName.trim(),
+        ownerId: uid,
+      );
+      await _db.collection('users').doc(uid).set({
+        'householdId': householdId,
+        'onboardingComplete': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      debugPrint("✅ Created and joined household: $householdId");
+      return householdId;
+    } catch (e) {
+      debugPrint("❌ Error creating household: $e");
+      rethrow;
+    }
   }
 
   /// Leave current household (returns to having no household - must rejoin or create)
   Future<void> leaveHousehold() async {
-    await _db.collection('users').doc(uid).set({
-      'householdId': null,
-      'onboardingComplete': false,
-    }, SetOptions(merge: true));
+    try {
+      await _db.collection('users').doc(uid).set({
+        'householdId': null,
+        'onboardingComplete': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      debugPrint("✅ Left household");
+    } catch (e) {
+      debugPrint("❌ Error leaving household: $e");
+      rethrow;
+    }
   }
 
   /// Delete user's Firestore document
   Future<void> deleteUserData() async {
-    await _db.collection('users').doc(uid).delete();
+    try {
+      await _db.collection('users').doc(uid).delete();
+      debugPrint("✅ User document deleted: $uid");
+    } catch (e) {
+      debugPrint("❌ Error deleting user data: $e");
+      rethrow;
+    }
   }
 
   /// Comprehensive account deletion - handles all cleanup
@@ -114,23 +209,35 @@ class UserService {
     int memberCount = 0,
   }) async {
     try {
+      debugPrint(
+        "🗑️ Starting account deletion for $uid (household: $householdId, isOwner: $isOwner, members: $memberCount)",
+      );
+
       // Step 1: Handle household cleanup
       if (householdId != null && householdId.isNotEmpty) {
         if (isOwner && memberCount <= 1) {
-          // Owner + Single Member: Delete the entire household
+          // Owner + Single Member (or no members): Delete the entire household
+          debugPrint("🏠 Deleting household (owner with $memberCount members)");
           await householdService.deleteHousehold(householdId);
+          debugPrint("✅ Household deleted");
+        } else if (!isOwner) {
+          // Member (not owner): Just leave the household by deleting our user doc
+          // We don't call leaveHousehold() as that would write to a doc we're about to delete
+          debugPrint(
+            "👋 Member leaving household (will be handled by user doc deletion)",
+          );
         }
-        // CRITICAL FIX:
-        // If they are a member (not owner), we do NOT call leaveHousehold().
-        // We simply delete their user document in Step 2.
-        // Calling leaveHousehold() writes to the doc we are about to delete, causing conflicts.
+        // If owner with multiple members, this should have been blocked at the UI level
       }
 
       // Step 2: Delete user document from Firestore
+      debugPrint("📄 Deleting user document");
       await deleteUserData();
+      debugPrint("✅ User document deleted");
 
       return DeleteAccountResult(success: true);
     } catch (e) {
+      debugPrint("❌ Account deletion error: $e");
       return DeleteAccountResult(success: false, error: e.toString());
     }
   }
@@ -147,12 +254,25 @@ class UserService {
             data['uid'] = doc.id;
             return data;
           }).toList();
+        })
+        .handleError((e) {
+          debugPrint("Error getting household members: $e");
+          return <Map<String, dynamic>>[];
         });
   }
 
   /// Update user's display name
   Future<void> updateName(String name) async {
-    await _db.collection('users').doc(uid).update({'name': name.trim()});
+    try {
+      await _db.collection('users').doc(uid).update({
+        'name': name.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint("✅ Name updated: $name");
+    } catch (e) {
+      debugPrint("❌ Error updating name: $e");
+      rethrow;
+    }
   }
 }
 

@@ -72,19 +72,26 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
       if (user != null) {
         await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
           'isPro': isPro,
+          'proUpdatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+        debugPrint("✅ Pro status synced to Firestore: $isPro");
       }
     } catch (e) {
       debugPrint("❌ Error syncing Pro status to Firestore: $e");
     }
   }
 
-  // Inside _PaywallScreenState
-
   Future<void> _purchase() async {
     if (_selectedPackage == null) {
       _showError("No package selected");
       return;
+    }
+
+    // Check if user is a guest and warn them
+    final user = ref.read(authStateProvider).value;
+    if (user?.isAnonymous == true) {
+      final shouldContinue = await _showGuestPurchaseWarning();
+      if (!shouldContinue) return;
     }
 
     setState(() => _isLoading = true);
@@ -97,20 +104,23 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
       );
 
       final customerInfo = result.customerInfo;
-
-      // CHECK 1: Ensure we are using the correct identifier
-      // Replace "pro_access" with the exact ID from RevenueCat dashboard if different
-      final entitlementId = "pro_access";
+      const entitlementId = "pro_access";
 
       final isPro =
           customerInfo.entitlements.all[entitlementId]?.isActive ?? false;
 
       debugPrint("🔍 DEBUG: Checking ID '$entitlementId'. Is Active? $isPro");
+      debugPrint(
+        "🔍 DEBUG: All entitlements: ${customerInfo.entitlements.all.keys}",
+      );
+      debugPrint(
+        "🔍 DEBUG: Active entitlements: ${customerInfo.entitlements.active.keys}",
+      );
 
       if (isPro) {
-        await _handleSuccess(true); // Refactored success logic
+        await _handleSuccess(true);
       } else {
-        // ... existing fallback logic ...
+        // Retry after delay - sometimes RevenueCat needs a moment
         await Future.delayed(const Duration(seconds: 2));
         final updatedInfo = await Purchases.getCustomerInfo();
 
@@ -124,34 +134,105 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
         if (recheckPro) {
           await _handleSuccess(true);
         } else {
-          // If we get here, the Purchase succeeded, but the Entitlement is NOT active.
-          // This confirms the Entitlement ID is wrong or the Product isn't attached to it in RevenueCat.
-          debugPrint(
-            "❌ CRITICAL: Purchase success, but entitlement '$entitlementId' missing.",
-          );
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                // Show the available keys to the user for debugging purposes
-                content: Text(
-                  "Error: Expected 'pro_access', found: ${updatedInfo.entitlements.all.keys.toList()}",
-                ),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 10),
-              ),
+          // Check if ANY entitlement is active (in case of ID mismatch)
+          if (updatedInfo.entitlements.active.isNotEmpty) {
+            debugPrint(
+              "⚠️ Found active entitlement with different ID, granting Pro anyway",
             );
-            Navigator.pop(context);
+            await _handleSuccess(true);
+          } else {
+            debugPrint(
+              "❌ CRITICAL: Purchase success, but entitlement '$entitlementId' missing.",
+            );
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    "Purchase completed but Pro access not activated. Please tap 'Restore Purchases' or contact support.",
+                  ),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 5),
+                ),
+              );
+            }
           }
         }
       }
     } on PlatformException catch (e) {
-      // ... existing error handling ...
+      debugPrint(
+        "❌ PlatformException during purchase: ${e.code} - ${e.message}",
+      );
+
+      // Handle specific RevenueCat error codes
+      final errorCode = e.code;
+
+      if (errorCode == '1' || e.message?.contains('cancelled') == true) {
+        // User cancelled - don't show error
+        debugPrint("User cancelled purchase");
+      } else if (errorCode == '6' || e.message?.contains('already') == true) {
+        // Product already purchased
+        debugPrint("Product already purchased, attempting restore...");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("You already have this subscription. Restoring..."),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        await _restore();
+      } else if (errorCode == '10' || e.message?.contains('network') == true) {
+        _showError(
+          "Network error. Please check your connection and try again.",
+        );
+      } else if (e.message?.contains('pending') == true) {
+        _showError(
+          "Payment is pending. Please complete the payment in the App Store.",
+        );
+      } else {
+        _showError("Purchase failed. Please try again later.");
+      }
     } catch (e) {
-      // ... existing error handling ...
+      debugPrint("❌ Unknown purchase error: $e");
+      _showError("An unexpected error occurred. Please try again.");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<bool> _showGuestPurchaseWarning() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange),
+            SizedBox(width: 8),
+            Text("Guest Account"),
+          ],
+        ),
+        content: const Text(
+          "You're using a guest account. If you uninstall the app or sign out, you may lose access to your subscription.\n\nWe recommend creating a real account first.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Continue Anyway"),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   // Helper to DRY up the success logic
@@ -181,8 +262,11 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
     setState(() => _isLoading = true);
     try {
       CustomerInfo customerInfo = await Purchases.restorePurchases();
+
+      // Check for pro_access entitlement OR any active entitlement
       final isPro =
-          customerInfo.entitlements.all["pro_access"]?.isActive == true;
+          customerInfo.entitlements.all["pro_access"]?.isActive == true ||
+          customerInfo.entitlements.active.isNotEmpty;
 
       if (isPro) {
         // CRITICAL: Sync to Firestore on restore as well
@@ -209,6 +293,7 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
         _showError("No active subscription found.");
       }
     } catch (e) {
+      debugPrint("❌ Restore failed: $e");
       _showError("Restore failed. Please try again.");
     } finally {
       if (mounted) setState(() => _isLoading = false);

@@ -23,15 +23,23 @@ import 'providers/recipe_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  final config = PurchasesConfiguration(
-    Platform.isIOS
-        ? 'appl_ADwaqVNAwvKvALzvYbmHkZEfuWX'
-        : 'appl_ADwaqVNAwvKvALzvYbmHkZEfuWX',
-  );
-
-  await Purchases.configure(config);
+  // Initialize RevenueCat
+  try {
+    final config = PurchasesConfiguration(
+      Platform.isIOS
+          ? 'appl_ADwaqVNAwvKvALzvYbmHkZEfuWX'
+          : 'appl_ADwaqVNAwvKvALzvYbmHkZEfuWX', // Use Android key when available
+    );
+    await Purchases.configure(config);
+    debugPrint("✅ RevenueCat configured successfully");
+  } catch (e) {
+    debugPrint("⚠️ RevenueCat configuration failed: $e");
+    // Continue without RevenueCat - app should still work
+  }
 
   runApp(const ProviderScope(child: FamilyEatsApp()));
 }
@@ -50,7 +58,7 @@ class FamilyEatsApp extends ConsumerWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF4A6C47),
-          background: const Color(0xFFF5F7F5),
+          surface: const Color(0xFFF5F7F5),
         ),
         appBarTheme: const AppBarTheme(
           centerTitle: true,
@@ -75,6 +83,9 @@ class FamilyEatsApp extends ConsumerWidget {
           filled: true,
           fillColor: Colors.white,
         ),
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+        ),
       ),
       home: authState.when(
         data: (user) {
@@ -85,7 +96,11 @@ class FamilyEatsApp extends ConsumerWidget {
           return const _AuthenticatedWrapper();
         },
         loading: () => const _LoadingScreen(),
-        error: (e, stack) => Scaffold(body: Center(child: Text("Error: $e"))),
+        error: (e, stack) {
+          debugPrint("Auth error: $e");
+          // On auth error, show login screen
+          return const LoginScreen();
+        },
       ),
     );
   }
@@ -107,7 +122,11 @@ class _AuthenticatedWrapper extends ConsumerWidget {
         return const MainTabScaffold();
       },
       loading: () => const _LoadingScreen(),
-      error: (e, _) => Scaffold(body: Center(child: Text("Error: $e"))),
+      error: (e, _) {
+        debugPrint("Onboarding check error: $e");
+        // On error, show onboarding to let user create/join household
+        return const HouseholdOnboardingScreen();
+      },
     );
   }
 }
@@ -127,6 +146,14 @@ class _LoadingScreen extends StatelessWidget {
             Icon(Icons.restaurant_menu, size: 64, color: Color(0xFF4A6C47)),
             SizedBox(height: 24),
             CircularProgressIndicator(color: Color(0xFF4A6C47)),
+            SizedBox(height: 16),
+            Text(
+              "Loading...",
+              style: TextStyle(
+                color: Color(0xFF4A6C47),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ],
         ),
       ),
@@ -170,30 +197,31 @@ class _MainTabScaffoldState extends State<MainTabScaffold> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: _goToTab,
         backgroundColor: Colors.white,
+        indicatorColor: const Color(0xFF4A6C47).withOpacity(0.1),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
+            selectedIcon: Icon(Icons.home, color: Color(0xFF4A6C47)),
             label: 'Home',
           ),
           NavigationDestination(
             icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month),
+            selectedIcon: Icon(Icons.calendar_month, color: Color(0xFF4A6C47)),
             label: 'Plan',
           ),
           NavigationDestination(
             icon: Icon(Icons.menu_book_outlined),
-            selectedIcon: Icon(Icons.menu_book),
+            selectedIcon: Icon(Icons.menu_book, color: Color(0xFF4A6C47)),
             label: 'Recipes',
           ),
           NavigationDestination(
             icon: Icon(Icons.shopping_cart_outlined),
-            selectedIcon: Icon(Icons.shopping_cart),
+            selectedIcon: Icon(Icons.shopping_cart, color: Color(0xFF4A6C47)),
             label: 'Shop',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
+            selectedIcon: Icon(Icons.settings, color: Color(0xFF4A6C47)),
             label: 'Settings',
           ),
         ],
@@ -219,6 +247,8 @@ class RecipeListScreenWrap extends ConsumerWidget {
             MaterialPageRoute(builder: (c) => const AddRecipeScreen()),
           );
         },
+        backgroundColor: const Color(0xFF4A6C47),
+        foregroundColor: Colors.white,
         label: const Text("New Recipe"),
         icon: const Icon(Icons.add),
       ),
@@ -281,7 +311,27 @@ class RecipeListScreenWrap extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text("Error: $err")),
+        error: (err, stack) {
+          debugPrint("Recipe loading error: $err");
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+                const SizedBox(height: 16),
+                Text(
+                  "Error loading recipes",
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => ref.invalidate(recipeProvider),
+                  child: const Text("Retry"),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

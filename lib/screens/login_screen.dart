@@ -1,4 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart'; // Import required for direct instance access
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
@@ -33,6 +33,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isLoading = true);
 
     try {
@@ -44,6 +45,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               _emailController.text.trim(),
               _passwordController.text.trim(),
             );
+        debugPrint("✅ Login successful");
       } else {
         // --- SIGN UP FLOW ---
         final name = _nameController.text.trim();
@@ -52,21 +54,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
         // 1. Create the Auth User
         await ref.read(authServiceProvider).signUp(email, password, name);
+        debugPrint("✅ Auth user created");
 
-        // 2. Initialize Firestore Document (CRITICAL FIX)
+        // 2. Wait a moment for Firebase to update
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // 3. Initialize Firestore Document
         // We use FirebaseAuth.instance.currentUser directly because the
-        // Riverpod provider (authServiceProvider) might not have updated yet.
+        // Riverpod provider might not have updated yet.
         final firebaseUser = FirebaseAuth.instance.currentUser;
 
         if (firebaseUser != null) {
           final userService = UserService(firebaseUser.uid);
           // Create the user doc in Firestore
           await userService.initializeUser(name, email);
+          debugPrint("✅ Firestore user document created");
 
-          // 3. Force Refresh
+          // 4. Force Refresh
           // Tell Riverpod to reload the user/household providers immediately
           ref.invalidate(userServiceProvider);
           ref.invalidate(currentHouseholdIdProvider);
+          ref.invalidate(onboardingCompleteProvider);
         } else {
           throw Exception(
             "Account created but user not found. Please try logging in.",
@@ -74,18 +82,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
       }
 
-      // 4. Navigation
-      // If your main.dart is listening to authStateChanges, this might happen automatically.
-      // If not, we manually pop the login screen or navigate.
+      // 5. Unfocus keyboard
       if (mounted) {
-        // Option A: If LoginScreen was pushed on top of something, pop it.
-        // Navigator.pop(context);
-
-        // Option B: If LoginScreen is your root, the stream in main.dart will handle it.
-        // However, to be safe, you can try to unfocus the keyboard.
         FocusScope.of(context).unfocus();
       }
+
+      // The authStateChanges stream in main.dart will handle navigation
     } catch (e) {
+      debugPrint("❌ Auth error: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -106,31 +110,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // 1. Sign in Anonymously
       final authService = ref.read(authServiceProvider);
       await authService.signInAnonymously();
+      debugPrint("✅ Anonymous sign in successful");
 
-      // 2. Get User (CRITICAL FIX: Use direct instance)
+      // 2. Wait a moment for Firebase to update
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // 3. Get User (use direct instance for reliability)
       final user = FirebaseAuth.instance.currentUser;
 
       if (user != null) {
-        // 3. Initialize a generic User document
+        // 4. Initialize a generic User document
         final userService = UserService(user.uid);
         await userService.initializeUser('Guest Chef', '');
+        debugPrint("✅ Guest user document created");
 
-        // 4. Auto-create a household (Skip onboarding)
+        // 5. Auto-create a household (Skip onboarding)
         final householdService = ref.read(householdServiceProvider);
         await userService.createAndJoinHousehold(
           'My Kitchen',
           householdService,
         );
+        debugPrint("✅ Guest household created");
 
-        // 5. Force Refresh
+        // 6. Force Refresh
         ref.invalidate(userServiceProvider);
         ref.invalidate(currentHouseholdIdProvider);
+        ref.invalidate(onboardingCompleteProvider);
+      } else {
+        throw Exception("Guest login failed - no user created");
       }
     } catch (e) {
+      debugPrint("❌ Guest login error: $e");
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Guest login failed: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Guest login failed: $e"),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -152,7 +170,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               children: [
                 // Logo & Branding
                 Image.asset(
-                  'assets/images/logo.png', // Ensure this asset exists
+                  'assets/images/logo.png',
                   height: 90,
                   width: 90,
                   fit: BoxFit.contain,
@@ -187,6 +205,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   TextFormField(
                     controller: _nameController,
                     textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
                       labelText: "Full Name",
                       prefixIcon: const Icon(Icons.person_outline),
@@ -209,6 +228,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autocorrect: false,
                   decoration: InputDecoration(
                     labelText: "Email",
                     prefixIcon: const Icon(Icons.email_outlined),
@@ -229,6 +250,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _isLoading ? null : _submit(),
                   decoration: InputDecoration(
                     labelText: "Password",
                     prefixIcon: const Icon(Icons.lock_outline),
@@ -267,6 +290,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         borderRadius: BorderRadius.circular(16),
                       ),
                       elevation: 0,
+                      disabledBackgroundColor: const Color(
+                        0xFF4A6C47,
+                      ).withOpacity(0.5),
                     ),
                     child: _isLoading
                         ? const SizedBox(
@@ -290,12 +316,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                 // Toggle login/signup
                 TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _isLogin = !_isLogin;
-                      _formKey.currentState?.reset();
-                    });
-                  },
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          setState(() {
+                            _isLogin = !_isLogin;
+                            // Clear form when switching
+                            _formKey.currentState?.reset();
+                            _nameController.clear();
+                            _emailController.clear();
+                            _passwordController.clear();
+                          });
+                        },
                   child: Text(
                     _isLogin
                         ? "Need an account? Sign Up"
@@ -306,12 +338,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                 ),
+
+                // Guest mode
                 TextButton(
                   onPressed: _isLoading ? null : _handleGuestLogin,
-                  child: const Text(
+                  child: Text(
                     "Skip for now (Continue as Guest)",
                     style: TextStyle(
-                      color: Colors.grey,
+                      color: Colors.grey.shade600,
                       decoration: TextDecoration.underline,
                     ),
                   ),

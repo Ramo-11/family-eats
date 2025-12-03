@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../models/household.dart';
-import '../../../services/user_service.dart';
+import '../../models/household.dart';
+import '../../services/user_service.dart';
 import '../paywall_screen.dart';
 
 class HouseholdCard extends ConsumerWidget {
@@ -25,7 +25,9 @@ class HouseholdCard extends ConsumerWidget {
     if (name == null || name.isEmpty) return "?";
     final parts = name.trim().split(" ");
     if (parts.isEmpty) return "?";
-    if (parts.length == 1) return parts[0][0].toUpperCase();
+    if (parts.length == 1) {
+      return parts[0].isNotEmpty ? parts[0][0].toUpperCase() : "?";
+    }
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 
@@ -395,10 +397,12 @@ class HouseholdCard extends ConsumerWidget {
                 ),
                 if (isMemberOwner)
                   Text(
-                    "Owner",
+                    "Owner${memberIsPro ? ' • Pro' : ''}",
                     style: TextStyle(
                       fontSize: 10,
-                      color: Colors.blue.shade700,
+                      color: memberIsPro
+                          ? Colors.amber.shade700
+                          : Colors.blue.shade700,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -434,26 +438,25 @@ class HouseholdCard extends ConsumerWidget {
       );
     }
     // Owner Actions are handled in the main settings screen via the "Household Settings" section
-    // but we can add quick actions here if desired.
     return const SizedBox.shrink();
   }
 
   void _showLeaveDialog(BuildContext context, WidgetRef ref) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Leave Household?"),
         content: const Text(
-          "You'll need to create a new household or join another one to continue.",
+          "You'll need to create a new household or join another one to continue using the app.",
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text("Cancel"),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text("Leave", style: TextStyle(color: Colors.red)),
           ),
         ],
@@ -461,7 +464,27 @@ class HouseholdCard extends ConsumerWidget {
     );
 
     if (confirm == true) {
-      await ref.read(userServiceProvider)?.leaveHousehold();
+      try {
+        await ref.read(userServiceProvider)?.leaveHousehold();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("You've left the household"),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Error: $e"),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
     }
   }
 }

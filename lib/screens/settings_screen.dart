@@ -1,4 +1,3 @@
-import 'package:family_eats/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
@@ -38,7 +37,6 @@ class SettingsScreen extends ConsumerWidget {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // --- 1. PROFILE HEADER ---
             ProfileHeader(
               displayName: authUser?.displayName,
               email: authUser?.email,
@@ -50,15 +48,12 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // --- GUEST WARNING ---
-            if (isGuest) _buildGuestWarning(),
+            if (isGuest) _buildGuestWarning(context, ref),
 
-            // --- 2. HOUSEHOLD CARD ---
             householdAsync.when(
               data: (household) {
                 if (household == null) return _buildNoHouseholdCard(context);
 
-                // Determine if household has Pro features (based on owner)
                 final isHouseholdPro =
                     ref.watch(householdLimitProvider).value ?? false;
 
@@ -82,7 +77,6 @@ class SettingsScreen extends ConsumerWidget {
 
             const SizedBox(height: 24),
 
-            // --- 3. PREFERENCES & ACTIONS ---
             _buildPreferencesList(
               context,
               ref,
@@ -120,7 +114,7 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildGuestWarning() {
+  Widget _buildGuestWarning(BuildContext context, WidgetRef ref) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Container(
@@ -146,7 +140,7 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ),
                   Text(
-                    "Your data is only saved on this device. Log out to create a real account.",
+                    "Your data is only saved on this device. Create an account to keep your recipes!",
                     style: TextStyle(
                       fontSize: 13,
                       color: Colors.orange.shade800,
@@ -217,7 +211,6 @@ class SettingsScreen extends ConsumerWidget {
             const Divider(height: 1, indent: 64),
             _buildProStatusTile(context, isPro, isProLoading),
 
-            // Household Management (Only if Owner)
             if (household != null && isOwner) ...[
               const Divider(height: 1, indent: 64),
               ListTile(
@@ -280,12 +273,26 @@ class SettingsScreen extends ConsumerWidget {
   ) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             const Text(
               "Household Settings",
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
@@ -295,7 +302,7 @@ class SettingsScreen extends ConsumerWidget {
               leading: const Icon(Icons.edit),
               title: const Text("Rename Household"),
               onTap: () {
-                Navigator.pop(context);
+                Navigator.pop(sheetContext);
                 _showRenameDialog(context, ref, household);
               },
             ),
@@ -303,10 +310,28 @@ class SettingsScreen extends ConsumerWidget {
               leading: const Icon(Icons.refresh),
               title: const Text("Regenerate Invite Code"),
               onTap: () {
-                Navigator.pop(context);
+                Navigator.pop(sheetContext);
                 _showRegenerateCodeDialog(context, ref, household);
               },
             ),
+            if (members.length > 1)
+              ListTile(
+                leading: const Icon(Icons.swap_horiz, color: Colors.blue),
+                title: const Text(
+                  "Transfer Ownership",
+                  style: TextStyle(color: Colors.blue),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showTransferOwnershipDialog(
+                    context,
+                    ref,
+                    household,
+                    members,
+                    currentUserId,
+                  );
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.delete_forever, color: Colors.red),
               title: const Text(
@@ -314,7 +339,7 @@ class SettingsScreen extends ConsumerWidget {
                 style: TextStyle(color: Colors.red),
               ),
               onTap: () {
-                Navigator.pop(context);
+                Navigator.pop(sheetContext);
                 _showDeleteHouseholdDialog(context, ref, household);
               },
             ),
@@ -322,6 +347,134 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  void _showTransferOwnershipDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Household household,
+    List<Map<String, dynamic>> members,
+    String? currentUserId,
+  ) {
+    final otherMembers = members
+        .where((m) => m['uid'] != currentUserId)
+        .toList();
+
+    if (otherMembers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("No other members to transfer ownership to."),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Transfer Ownership"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Select a member to become the new owner:"),
+            const SizedBox(height: 16),
+            ...otherMembers.map((member) {
+              final memberName =
+                  member['name'] as String? ?? member['email'] ?? 'Member';
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: const Color(0xFF4A6C47).withOpacity(0.1),
+                  child: Text(
+                    memberName.isNotEmpty ? memberName[0].toUpperCase() : '?',
+                    style: const TextStyle(color: Color(0xFF4A6C47)),
+                  ),
+                ),
+                title: Text(memberName),
+                onTap: () async {
+                  Navigator.pop(dialogContext);
+                  await _confirmTransferOwnership(
+                    context,
+                    ref,
+                    household,
+                    member['uid'] as String,
+                    memberName,
+                  );
+                },
+              );
+            }),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text("Cancel"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmTransferOwnership(
+    BuildContext context,
+    WidgetRef ref,
+    Household household,
+    String newOwnerId,
+    String newOwnerName,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Confirm Transfer"),
+        content: Text(
+          "Transfer ownership to $newOwnerName?\n\nYou will no longer be able to manage household settings.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4A6C47),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Transfer"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await ref
+            .read(householdServiceProvider)
+            .transferOwnership(household.id, newOwnerId);
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Ownership transferred to $newOwnerName"),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Transfer failed: $e"),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Widget _buildIcon(IconData icon, Color color, Color bg) {
@@ -423,8 +576,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  // ... [Keep _showEditProfileSheet, _showProManagementSheet, _showRenameDialog, _showRegenerateCodeDialog, _showDeleteHouseholdDialog from original] ...
-
   void _showEditProfileSheet(
     BuildContext context,
     WidgetRef ref,
@@ -436,11 +587,11 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) {
-        final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+      builder: (sheetContext) {
+        final bottomPadding = MediaQuery.of(sheetContext).viewInsets.bottom;
 
         return GestureDetector(
-          onTap: () => FocusScope.of(context).unfocus(),
+          onTap: () => FocusScope.of(sheetContext).unfocus(),
           behavior: HitTestBehavior.opaque,
           child: Container(
             padding: EdgeInsets.only(bottom: bottomPadding),
@@ -504,8 +655,8 @@ class SettingsScreen extends ConsumerWidget {
                             .currentUser
                             ?.updateDisplayName(newName);
 
-                        if (context.mounted) {
-                          Navigator.pop(context);
+                        if (sheetContext.mounted) {
+                          Navigator.pop(sheetContext);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('Profile updated!'),
@@ -545,7 +696,7 @@ class SettingsScreen extends ConsumerWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -629,7 +780,7 @@ class SettingsScreen extends ConsumerWidget {
 
     final newName = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Rename Household"),
         content: TextField(
@@ -643,11 +794,11 @@ class SettingsScreen extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text("Cancel"),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text),
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4A6C47),
               foregroundColor: Colors.white,
@@ -662,6 +813,15 @@ class SettingsScreen extends ConsumerWidget {
       await ref
           .read(householdServiceProvider)
           .updateHouseholdName(household.id, newName);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Household renamed!"),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -672,7 +832,7 @@ class SettingsScreen extends ConsumerWidget {
   ) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Regenerate Code?"),
         content: const Text(
@@ -680,11 +840,11 @@ class SettingsScreen extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text("Cancel"),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF4A6C47),
               foregroundColor: Colors.white,
@@ -777,15 +937,27 @@ class SettingsScreen extends ConsumerWidget {
     );
 
     if (confirm == true) {
-      await ref.read(householdServiceProvider).deleteHousehold(household.id);
+      try {
+        await ref.read(householdServiceProvider).deleteHousehold(household.id);
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Household deleted'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Household deleted'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
       }
     }
   }
@@ -795,6 +967,9 @@ class SettingsScreen extends ConsumerWidget {
       showDialog(
         context: context,
         builder: (c) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Text("Exit Guest Mode?"),
           content: const Text(
             "You will lose all data unless you sign up properly.",
@@ -822,8 +997,6 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  // --- DELETE ACCOUNT LOGIC ---
-
   void _handleDeleteAccount(
     BuildContext context,
     WidgetRef ref,
@@ -836,20 +1009,63 @@ class SettingsScreen extends ConsumerWidget {
     final isOwner = household?.ownerId == user?.uid;
 
     if (household != null && isOwner && members.length > 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Please transfer ownership or delete household first."),
+      final shouldTransfer = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text("Transfer Ownership Required"),
+          content: const Text(
+            "You are the owner of a household with other members. Please transfer ownership to another member before deleting your account, or delete the household first.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(c, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4A6C47),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text("Transfer Ownership"),
+            ),
+          ],
         ),
       );
+
+      if (shouldTransfer == true && context.mounted) {
+        _showTransferOwnershipDialog(
+          context,
+          ref,
+          household,
+          members,
+          user?.uid,
+        );
+      }
       return;
     }
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Delete Account?"),
-        content: const Text(
-          "This action cannot be undone. All your data will be lost.",
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "This action cannot be undone. All your data will be permanently deleted:",
+            ),
+            const SizedBox(height: 12),
+            _buildDeleteItem("Your profile"),
+            _buildDeleteItem("Your preferences"),
+            if (household != null && isOwner && members.length <= 1)
+              _buildDeleteItem("Your household and all its data"),
+          ],
         ),
         actions: [
           TextButton(
@@ -857,12 +1073,12 @@ class SettingsScreen extends ConsumerWidget {
             child: const Text("Cancel"),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text(
-              "Delete Forever",
-              style: TextStyle(color: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
             ),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text("Delete Forever"),
           ),
         ],
       ),
@@ -894,11 +1110,16 @@ class SettingsScreen extends ConsumerWidget {
     return showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Confirm Password"),
         content: TextField(
           controller: controller,
           obscureText: true,
-          decoration: const InputDecoration(labelText: "Password"),
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: "Password",
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
         ),
         actions: [
           TextButton(
@@ -907,6 +1128,10 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(c, controller.text),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             child: const Text("Confirm"),
           ),
         ],
@@ -923,45 +1148,54 @@ class SettingsScreen extends ConsumerWidget {
     Household? household,
     required int memberCount,
   }) async {
-    // 1. Capture Services & Navigator EARLY
-    // capturing 'navigator' here ensures we can still use it even if SettingsScreen is disposed
-    final navigator = Navigator.of(context, rootNavigator: true);
+    // 1. Set the deletion flag FIRST to prevent any Firestore writes
+    AccountDeletionState.isDeleting = true;
+    debugPrint("🚨 Account deletion started - blocking Firestore writes");
+
+    // 2. Capture Services EARLY
     final authService = ref.read(authServiceProvider);
     final userService = ref.read(userServiceProvider);
     final householdService = ref.read(householdServiceProvider);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
 
-    // 2. Show Loading Dialog
+    // 3. Show Loading Dialog (NOT using rootNavigator so it's tied to this screen)
+    final dialogContext = context;
+    bool dialogShowing = true;
+
     showDialog(
-      context: context,
+      context: dialogContext,
       barrierDismissible: false,
-      builder: (_) => const WillPopScope(
-        onWillPop: null, // Disable back button
+      useRootNavigator: false, // Keep dialog in same navigator as Settings
+      builder: (_) => const PopScope(
+        canPop: false,
         child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(height: 16),
-              Text(
-                "Deleting Account...",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text(
+                    "Deleting Account...",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
 
     try {
-      // 3. Re-authenticate (if needed)
-      if (!isGuest && password != null) {
+      // 4. Re-authenticate (if needed)
+      if (!isGuest && password != null && password.isNotEmpty) {
         await authService.reauthenticate(password);
       }
 
-      // 4. Delete Firestore Data
+      // 5. Delete Firestore Data
       if (userService != null) {
         final result = await userService.deleteAccountCompletely(
           householdService: householdService,
@@ -975,37 +1209,46 @@ class SettingsScreen extends ConsumerWidget {
         }
       }
 
-      // 5. Delete Firebase Auth
-      // This step usually triggers the widget disposal
+      // 6. Close loading dialog BEFORE deleting auth user
+      // This ensures dialog is dismissed while context is still valid
+      if (dialogContext.mounted && dialogShowing) {
+        Navigator.of(dialogContext).pop();
+        dialogShowing = false;
+      }
+
+      // 7. Delete Firebase Auth user
+      // This triggers auth state change which navigates to login
       await authService.deleteAccount();
 
-      // 6. Navigation Cleanup
-      // FIX: Unconditionally pop and navigate using the captured navigator.
-      // We do NOT check 'if (context.mounted)' here because the widget is likely already disposed.
+      debugPrint("✅ Account deletion completed successfully");
 
-      navigator.pop(); // Close the loading dialog
-
-      await navigator.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-        (Route<dynamic> route) => false,
+      // Show success (this might not show if navigation happens fast)
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Text("Account deleted successfully"),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } catch (e) {
-      // Error handling
-      // We try to pop the dialog if it's still open
-      try {
-        navigator.pop();
-      } catch (_) {}
+      debugPrint("❌ Account deletion error: $e");
 
-      // For errors, we DO check mounted because we need a valid context to show a SnackBar
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Deletion Failed: $e"),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      // Close loading dialog on error
+      if (dialogContext.mounted && dialogShowing) {
+        Navigator.of(dialogContext).pop();
+        dialogShowing = false;
       }
+
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text("Deletion Failed: $e"),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      // 8. Reset the deletion flag
+      AccountDeletionState.isDeleting = false;
+      debugPrint("🔓 Account deletion flag reset");
     }
   }
 }

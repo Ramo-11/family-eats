@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/household.dart';
 import 'auth_service.dart';
@@ -24,52 +25,75 @@ class HouseholdService {
     required String name,
     required String ownerId,
   }) async {
-    // Generate unique invite code (check for collisions)
-    String inviteCode;
-    bool codeExists = true;
+    try {
+      // Generate unique invite code (check for collisions)
+      String inviteCode;
+      bool codeExists = true;
+      int attempts = 0;
+      const maxAttempts = 10;
 
-    do {
-      inviteCode = _generateInviteCode();
-      final existing = await _db
-          .collection('households')
-          .where('inviteCode', isEqualTo: inviteCode)
-          .limit(1)
-          .get();
-      codeExists = existing.docs.isNotEmpty;
-    } while (codeExists);
+      do {
+        inviteCode = _generateInviteCode();
+        final existing = await _db
+            .collection('households')
+            .where('inviteCode', isEqualTo: inviteCode)
+            .limit(1)
+            .get();
+        codeExists = existing.docs.isNotEmpty;
+        attempts++;
+      } while (codeExists && attempts < maxAttempts);
 
-    // Create the household document
-    final docRef = _db.collection('households').doc();
-    final household = Household(
-      id: docRef.id,
-      name: name,
-      ownerId: ownerId,
-      inviteCode: inviteCode,
-      createdAt: DateTime.now(),
-    );
+      if (codeExists) {
+        throw "Unable to generate unique invite code. Please try again.";
+      }
 
-    await docRef.set(household.toMap());
-    return docRef.id;
+      // Create the household document
+      final docRef = _db.collection('households').doc();
+      final household = Household(
+        id: docRef.id,
+        name: name.trim(),
+        ownerId: ownerId,
+        inviteCode: inviteCode,
+        createdAt: DateTime.now(),
+      );
+
+      await docRef.set(household.toMap());
+      debugPrint("✅ Created household: ${docRef.id} with code: $inviteCode");
+      return docRef.id;
+    } catch (e) {
+      debugPrint("❌ Error creating household: $e");
+      rethrow;
+    }
   }
 
   /// Find household by invite code
   Future<Household?> findByInviteCode(String code) async {
-    final normalizedCode = code.trim().toUpperCase();
-    final snapshot = await _db
-        .collection('households')
-        .where('inviteCode', isEqualTo: normalizedCode)
-        .limit(1)
-        .get();
+    try {
+      final normalizedCode = code.trim().toUpperCase();
+      final snapshot = await _db
+          .collection('households')
+          .where('inviteCode', isEqualTo: normalizedCode)
+          .limit(1)
+          .get();
 
-    if (snapshot.docs.isEmpty) return null;
-    return Household.fromMap(snapshot.docs.first.data());
+      if (snapshot.docs.isEmpty) return null;
+      return Household.fromMap(snapshot.docs.first.data());
+    } catch (e) {
+      debugPrint("Error finding household by invite code: $e");
+      return null;
+    }
   }
 
   /// Get household by ID
   Future<Household?> getHousehold(String householdId) async {
-    final doc = await _db.collection('households').doc(householdId).get();
-    if (!doc.exists) return null;
-    return Household.fromMap(doc.data()!);
+    try {
+      final doc = await _db.collection('households').doc(householdId).get();
+      if (!doc.exists) return null;
+      return Household.fromMap(doc.data()!);
+    } catch (e) {
+      debugPrint("Error getting household: $e");
+      return null;
+    }
   }
 
   /// Stream household data
@@ -78,102 +102,164 @@ class HouseholdService {
         .collection('households')
         .doc(householdId)
         .snapshots()
-        .map((doc) => doc.exists ? Household.fromMap(doc.data()!) : null);
+        .map((doc) => doc.exists ? Household.fromMap(doc.data()!) : null)
+        .handleError((e) {
+          debugPrint("Error watching household: $e");
+          return null;
+        });
   }
 
   /// Update household name
   Future<void> updateHouseholdName(String householdId, String newName) async {
-    await _db.collection('households').doc(householdId).update({
-      'name': newName.trim(),
-    });
+    try {
+      await _db.collection('households').doc(householdId).update({
+        'name': newName.trim(),
+      });
+      debugPrint("✅ Household renamed to: $newName");
+    } catch (e) {
+      debugPrint("❌ Error updating household name: $e");
+      rethrow;
+    }
   }
 
   /// Regenerate invite code (useful if code was compromised)
   Future<String> regenerateInviteCode(String householdId) async {
-    String inviteCode;
-    bool codeExists = true;
+    try {
+      String inviteCode;
+      bool codeExists = true;
+      int attempts = 0;
+      const maxAttempts = 10;
 
-    do {
-      inviteCode = _generateInviteCode();
-      final existing = await _db
-          .collection('households')
-          .where('inviteCode', isEqualTo: inviteCode)
-          .limit(1)
-          .get();
-      codeExists = existing.docs.isNotEmpty;
-    } while (codeExists);
+      do {
+        inviteCode = _generateInviteCode();
+        final existing = await _db
+            .collection('households')
+            .where('inviteCode', isEqualTo: inviteCode)
+            .limit(1)
+            .get();
+        codeExists = existing.docs.isNotEmpty;
+        attempts++;
+      } while (codeExists && attempts < maxAttempts);
 
-    await _db.collection('households').doc(householdId).update({
-      'inviteCode': inviteCode,
-    });
+      if (codeExists) {
+        throw "Unable to generate unique invite code. Please try again.";
+      }
 
-    return inviteCode;
+      await _db.collection('households').doc(householdId).update({
+        'inviteCode': inviteCode,
+      });
+
+      debugPrint("✅ Regenerated invite code: $inviteCode");
+      return inviteCode;
+    } catch (e) {
+      debugPrint("❌ Error regenerating invite code: $e");
+      rethrow;
+    }
   }
 
   /// Check if user is owner of household
   Future<bool> isOwner(String householdId, String userId) async {
-    final household = await getHousehold(householdId);
-    return household?.ownerId == userId;
+    try {
+      final household = await getHousehold(householdId);
+      return household?.ownerId == userId;
+    } catch (e) {
+      debugPrint("Error checking ownership: $e");
+      return false;
+    }
   }
 
   /// Transfer ownership to another member
   Future<void> transferOwnership(String householdId, String newOwnerId) async {
-    await _db.collection('households').doc(householdId).update({
-      'ownerId': newOwnerId,
-    });
+    try {
+      // Verify the new owner is a member of this household
+      final userDoc = await _db.collection('users').doc(newOwnerId).get();
+      if (!userDoc.exists) {
+        throw "User not found";
+      }
+      final userData = userDoc.data();
+      if (userData?['householdId'] != householdId) {
+        throw "User is not a member of this household";
+      }
+
+      await _db.collection('households').doc(householdId).update({
+        'ownerId': newOwnerId,
+      });
+      debugPrint("✅ Ownership transferred to: $newOwnerId");
+    } catch (e) {
+      debugPrint("❌ Error transferring ownership: $e");
+      rethrow;
+    }
   }
 
   /// Delete household and remove all members from it
   Future<void> deleteHousehold(String householdId) async {
-    // First, get all users in this household and clear their householdId
-    final usersSnapshot = await _db
-        .collection('users')
-        .where('householdId', isEqualTo: householdId)
-        .get();
+    try {
+      debugPrint("🗑️ Deleting household: $householdId");
 
-    final batch = _db.batch();
+      // First, get all users in this household and clear their householdId
+      final usersSnapshot = await _db
+          .collection('users')
+          .where('householdId', isEqualTo: householdId)
+          .get();
 
-    // Update all users to remove them from the household
-    for (final userDoc in usersSnapshot.docs) {
-      batch.update(userDoc.reference, {
-        'householdId': null,
-        'onboardingComplete': false,
-      });
+      final batch = _db.batch();
+
+      // Update all users to remove them from the household
+      for (final userDoc in usersSnapshot.docs) {
+        batch.update(userDoc.reference, {
+          'householdId': null,
+          'onboardingComplete': false,
+        });
+      }
+      debugPrint("📋 Marked ${usersSnapshot.docs.length} users for update");
+
+      // Delete all subcollections (recipes, meal_plan, custom_ingredients)
+      final recipesSnapshot = await _db
+          .collection('households')
+          .doc(householdId)
+          .collection('recipes')
+          .get();
+      for (final doc in recipesSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      debugPrint(
+        "📋 Marked ${recipesSnapshot.docs.length} recipes for deletion",
+      );
+
+      final mealPlanSnapshot = await _db
+          .collection('households')
+          .doc(householdId)
+          .collection('meal_plan')
+          .get();
+      for (final doc in mealPlanSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      debugPrint(
+        "📋 Marked ${mealPlanSnapshot.docs.length} meal plans for deletion",
+      );
+
+      final ingredientsSnapshot = await _db
+          .collection('households')
+          .doc(householdId)
+          .collection('custom_ingredients')
+          .get();
+      for (final doc in ingredientsSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      debugPrint(
+        "📋 Marked ${ingredientsSnapshot.docs.length} custom ingredients for deletion",
+      );
+
+      // Delete the household document itself
+      batch.delete(_db.collection('households').doc(householdId));
+
+      // Commit all changes
+      await batch.commit();
+      debugPrint("✅ Household deleted successfully");
+    } catch (e) {
+      debugPrint("❌ Error deleting household: $e");
+      rethrow;
     }
-
-    // Delete all subcollections (recipes, meal_plan, custom_ingredients)
-    final recipesSnapshot = await _db
-        .collection('households')
-        .doc(householdId)
-        .collection('recipes')
-        .get();
-    for (final doc in recipesSnapshot.docs) {
-      batch.delete(doc.reference);
-    }
-
-    final mealPlanSnapshot = await _db
-        .collection('households')
-        .doc(householdId)
-        .collection('meal_plan')
-        .get();
-    for (final doc in mealPlanSnapshot.docs) {
-      batch.delete(doc.reference);
-    }
-
-    final ingredientsSnapshot = await _db
-        .collection('households')
-        .doc(householdId)
-        .collection('custom_ingredients')
-        .get();
-    for (final doc in ingredientsSnapshot.docs) {
-      batch.delete(doc.reference);
-    }
-
-    // Delete the household document itself
-    batch.delete(_db.collection('households').doc(householdId));
-
-    // Commit all changes
-    await batch.commit();
   }
 }
 
@@ -199,8 +285,7 @@ final currentHouseholdProvider = StreamProvider<Household?>((ref) {
   );
 });
 
-// We need to import this from user_service, but to avoid circular deps,
-// we'll define the provider reference here
+// Provider for current user's household ID
 final currentHouseholdIdProvider = StreamProvider<String?>((ref) {
   final user = ref.watch(authStateProvider).value;
   if (user == null) return Stream.value(null);
@@ -209,5 +294,9 @@ final currentHouseholdIdProvider = StreamProvider<String?>((ref) {
       .collection('users')
       .doc(user.uid)
       .snapshots()
-      .map((doc) => doc.data()?['householdId'] as String?);
+      .map((doc) => doc.data()?['householdId'] as String?)
+      .handleError((e) {
+        debugPrint("Error watching household ID: $e");
+        return null;
+      });
 });
